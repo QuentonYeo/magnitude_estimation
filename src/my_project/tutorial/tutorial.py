@@ -2,6 +2,7 @@ import seisbench
 import seisbench.data as sbd
 import seisbench.generate as sbg
 import seisbench.models as sbm
+from seisbench.data import BenchmarkDataset
 
 import os
 import argparse
@@ -108,15 +109,15 @@ def test_generator():
     plt.show()
 
 
-def train_phasenet(model_name: str, learning_rate=1e-2, epochs=5):
-    # Load standard Phasenet
-    model = sbm.PhaseNet(
-        phases="PSN", norm="std", default_args={"blinding": (200, 200)}
-    )
-    model.to_preferred_device(verbose=True)
-
-    train_generator, train_loader, _ = dl.load_dataset(model, "train")
-    dev_generator, dev_loader, _ = dl.load_dataset(model, "dev")
+def train_phasenet(
+    model_name: str,
+    model: sbm.WaveformModel,
+    data: BenchmarkDataset,
+    learning_rate=1e-2,
+    epochs=5,
+):
+    train_generator, train_loader, _ = dl.load_dataset(data, model, "train")
+    dev_generator, dev_loader, _ = dl.load_dataset(data, model, "dev")
 
     print("Data successfully loaded")
 
@@ -191,25 +192,19 @@ def train_phasenet(model_name: str, learning_rate=1e-2, epochs=5):
     print(f"Training complete, model saved to {save_path}")
 
 
-def evaluate_phasenet():
+def evaluate_phasenet(model: sbm.WaveformModel, data: sbd.BenchmarkDataset):
     parser = argparse.ArgumentParser(description="Evaluate PhaseNet model")
     parser.add_argument(
         "--model_path", type=str, required=True, help="Path to model checkpoint file"
     )
     args = parser.parse_args()
 
-    # Load standard Phasenet
-    model = sbm.PhaseNet(
-        phases="PSN", norm="std", default_args={"blinding": (200, 200)}
-    )
-    model.to_preferred_device(verbose=True)
-
     # Load weights from specified checkpoint
     state_dict = torch.load(args.model_path, map_location=model.device)
     model.load_state_dict(state_dict)
     print(f"Loaded model weights from {args.model_path}")
 
-    test_generator, _, _ = dl.load_dataset(model, "test")
+    test_generator, _, _ = dl.load_dataset(data=data, model=model, type="test")
 
     # Visual check: plot a random test sample and prediction
     sample = test_generator[np.random.randint(len(test_generator))]
