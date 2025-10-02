@@ -64,3 +64,101 @@ def plot_magnitude_distribution(data: BenchmarkDataset) -> None:
     plt.title("Magnitude Distribution in DummyDataset")
     plt.xticks(bins)
     plt.show()
+
+
+def plot_training_history(history_path: str):
+    """
+    Load and visualize training history from PhaseNetMag training.
+
+    Args:
+        history_path: Path to the training_history_*.pt file
+    """
+    import torch
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    print(f"Loading training history from: {history_path}")
+
+    # Load the history dictionary
+    history = torch.load(history_path, map_location="cpu")
+
+    # Extract data
+    train_losses = history["train_losses"]
+    val_losses = history["val_losses"]
+    best_val_loss = history["best_val_loss"]
+
+    print(f"Training epochs: {len(train_losses)}")
+    print(f"Best validation loss: {best_val_loss:.6f}")
+    print(f"Final training loss: {train_losses[-1]:.6f}")
+    print(f"Final validation loss: {val_losses[-1]:.6f}")
+
+    # Create plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+
+    epochs = range(1, len(train_losses) + 1)
+
+    # Plot 1: Loss curves
+    ax1.plot(epochs, train_losses, "b-", label="Training Loss", linewidth=2)
+    ax1.plot(epochs, val_losses, "r-", label="Validation Loss", linewidth=2)
+    ax1.axhline(
+        y=best_val_loss,
+        color="g",
+        linestyle="--",
+        label=f"Best Val Loss: {best_val_loss:.4f}",
+    )
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss (MSE)")
+    ax1.set_title("Training and Validation Loss")
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Learning progress (log scale)
+    ax2.semilogy(epochs, train_losses, "b-", label="Training Loss", linewidth=2)
+    ax2.semilogy(epochs, val_losses, "r-", label="Validation Loss", linewidth=2)
+    ax2.axhline(
+        y=best_val_loss,
+        color="g",
+        linestyle="--",
+        label=f"Best Val Loss: {best_val_loss:.4f}",
+    )
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylabel("Loss (MSE) - Log Scale")
+    ax2.set_title("Training Progress (Log Scale)")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+    # Print training analysis
+    print("\n" + "=" * 50)
+    print("TRAINING ANALYSIS")
+    print("=" * 50)
+
+    # Check for overfitting
+    if len(val_losses) > 1:
+        val_trend = np.diff(val_losses[-3:])  # Last 3 epochs trend
+        if np.mean(val_trend) > 0:
+            print("Validation loss increasing - possible overfitting")
+        else:
+            print("Validation loss stable/decreasing - good training")
+
+    # Check convergence
+    if len(train_losses) > 2:
+        train_change = abs(train_losses[-1] - train_losses[-2])
+        val_change = abs(val_losses[-1] - val_losses[-2])
+
+        if train_change < 0.001 and val_change < 0.001:
+            print("Training appears to have converged")
+        else:
+            print("Training still progressing - could benefit from more epochs")
+
+    # Loss gap analysis
+    final_gap = val_losses[-1] - train_losses[-1]
+    print(f"Train-Val gap: {final_gap:.4f}")
+    if final_gap > 0.1:
+        print("Large train-val gap suggests overfitting")
+    elif final_gap < 0.05:
+        print("Small train-val gap indicates good generalization")
+
+    return history

@@ -12,7 +12,8 @@ import seisbench.models as sbm
 from seisbench.util import worker_seeding
 
 from my_project.utils.utils import plot_magnitude_distribution, dump_metadata_to_csv
-
+from my_project.loaders.magnitude_labellers import MagnitudeLabellerPhaseNet
+from my_project.models.phasenet_mag.model import PhaseNetMag
 
 # Only training for S and P picks, map the labels
 phase_dict = {
@@ -32,6 +33,29 @@ phase_dict = {
     "trace_SmS_arrival_sample": "S",
     "trace_Sn_arrival_sample": "S",
 }
+
+
+def get_magnitude_augmentation():
+    """Define training and validation generator for magnitude regression only:
+
+    - Long window around pick
+    - Random window of 3001 samples (Phasenet input length)
+    - Change datatype to float32 for pytorch
+    - Magnitude labeller only (no phase labels)
+    """
+    augmentations = [
+        sbg.WindowAroundSample(
+            list(phase_dict.keys()),
+            samples_before=3000,
+            windowlen=6000,
+            selection="random",
+            strategy="variable",
+        ),
+        sbg.RandomWindow(windowlen=3001, strategy="pad"),
+        sbg.ChangeDtype(np.float32),
+        MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
+    ]
+    return augmentations
 
 
 def get_augmentation(model: WaveformModel):
@@ -80,8 +104,13 @@ def load_dataset(
 
     ds_generator = sbg.GenericGenerator(dataset)
 
-    if isinstance(model, (sbm.PhaseNet)):
+    if isinstance(model, PhaseNetMag):
+        ds_generator.add_augmentations(get_magnitude_augmentation())
+    elif isinstance(model, (sbm.PhaseNet)):
         ds_generator.add_augmentations(get_augmentation(model))
+        ds_generator.add_augmentations(
+            [MagnitudeLabellerPhaseNet(phase_dict=phase_dict)]
+        )
     else:
         print("load dataset failed")
         return
