@@ -192,17 +192,13 @@ def train_phasenet(
     print(f"Training complete, model saved to {save_path}")
 
 
-def evaluate_phasenet(model: sbm.WaveformModel, data: sbd.BenchmarkDataset):
-    parser = argparse.ArgumentParser(description="Evaluate PhaseNet model")
-    parser.add_argument(
-        "--model_path", type=str, required=True, help="Path to model checkpoint file"
-    )
-    args = parser.parse_args()
-
+def evaluate_phasenet(
+    model: sbm.WaveformModel, model_path: str, data: sbd.BenchmarkDataset
+):
     # Load weights from specified checkpoint
-    state_dict = torch.load(args.model_path, map_location=model.device)
+    state_dict = torch.load(model_path, map_location=model.device)
     model.load_state_dict(state_dict)
-    print(f"Loaded model weights from {args.model_path}")
+    print(f"Loaded model weights from {model_path}")
 
     test_generator, _, _ = dl.load_dataset(data=data, model=model, type="test")
 
