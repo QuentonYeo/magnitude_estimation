@@ -32,8 +32,10 @@ def train_phasenet_mag(
         batch_size: Batch size for training
         save_every: Save model every N epochs
     """
+    print("\n" + "=" * 50)
+    print("TRAINING")
+    print("=" * 50)
     print(f"Training PhaseNetMag on {data.__class__.__name__}")
-    print(f"Model device: {model.device}")
 
     # Load data
     train_generator, train_loader, _ = dl.load_dataset(
@@ -42,10 +44,6 @@ def train_phasenet_mag(
     dev_generator, dev_loader, _ = dl.load_dataset(
         data, model, "dev", batch_size=batch_size
     )
-
-    print("Data successfully loaded")
-    print(f"Training samples: {len(train_generator)}")
-    print(f"Validation samples: {len(dev_generator)}")
 
     # Setup optimizer and loss function
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -138,13 +136,13 @@ def train_phasenet_mag(
         # Learning rate scheduling
         scheduler.step(val_loss)
 
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            best_model_path = os.path.join(save_dir, f"model_best_{timestamp}.pt")
-            torch.save(model.state_dict(), best_model_path)
-            print(f"New best model saved: {best_model_path}")
+        # # Save best model
+        # if val_loss < best_val_loss:
+        #     best_val_loss = val_loss
+        #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #     best_model_path = os.path.join(save_dir, f"model_best_{timestamp}.pt")
+        #     torch.save(model.state_dict(), best_model_path)
+        #     print(f"New best model saved: {best_model_path}")
 
         # Save checkpoint
         if (epoch + 1) % save_every == 0:
@@ -205,11 +203,7 @@ def main():
 
     # Create model
     model = PhaseNetMag(in_channels=3, sampling_rate=100, norm="std", filter_factor=1)
-
-    # Move to GPU if available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    print(f"Model moved to device: {device}")
+    model.to_preferred_device(verbose=True)
 
     # Model name for saving
     model_name = f"PhaseNetMag_{args.dataset}"

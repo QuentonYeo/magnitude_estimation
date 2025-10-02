@@ -287,11 +287,7 @@ def main():
 
     # Create model
     model = PhaseNetMag(in_channels=3, sampling_rate=100, norm="std", filter_factor=1)
-
-    # Move to GPU if available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    print(f"Model moved to device: {device}")
+    model.to_preferred_device(verbose=True)  # NOTE for cpu inference, move to CPU
 
     # Evaluate model
     results = evaluate_phasenet_mag(

@@ -23,9 +23,7 @@ def magnitude_train(data: BenchmarkDataset, epochs: int = 5):
 
     # Create model
     model = PhaseNetMag(in_channels=3, sampling_rate=100, norm="std", filter_factor=1)
-
     model.to_preferred_device(verbose=True)
-    print(f"Model moved to device: {model.device}")
 
     # Model name for saving
     model_name = f"PhaseNetMag_{data.name}"
@@ -35,7 +33,7 @@ def magnitude_train(data: BenchmarkDataset, epochs: int = 5):
         model_name=model_name,
         model=model,
         data=data,
-        learning_rate=1e-3,
+        learning_rate=1e-4,
         epochs=epochs,
         batch_size=256,
         save_every=5,
@@ -134,7 +132,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load dataset
-    print(f"Loading {args.dataset} dataset...")
+    print("\n" + "=" * 50)
+    print("LOADING DATA")
+    print("=" * 50)
     if args.dataset == "ETHZ":
         data = sbd.ETHZ(sampling_rate=100)
     elif args.dataset == "STEAD":
@@ -170,4 +170,4 @@ if __name__ == "__main__":
     else:
         print(f"Unknown mode: {args.mode}")
 
-    print("Script completed!")
+    print("=" * 50 + "\n")
