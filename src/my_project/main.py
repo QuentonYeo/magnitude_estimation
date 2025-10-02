@@ -1,4 +1,4 @@
+from my_project.tutorial.tutorial import test_load_data
 
 if __name__ == "__main__":
-    print("hello world")
-
+    test_load_data()
