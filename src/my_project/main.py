@@ -16,6 +16,8 @@ from my_project.models.phasenet_mag.model import PhaseNetMag
 
 from my_project.utils.utils import plot_training_history
 
+import torch
+
 
 def magnitude_train(data: BenchmarkDataset, epochs: int = 5):
     """Train PhaseNetMag for magnitude regression"""
@@ -72,16 +74,17 @@ def tutorial_tests(data: BenchmarkDataset, model_path: str = ""):
     model = sbm.PhaseNet(
         phases="PSN", norm="std", default_args={"blinding": (200, 200)}
     )
+    print(torch.cuda.is_available())
     model.to_preferred_device(verbose=True)
 
-    # model_name = f"PhaseNet_{data.name}"
+    model_name = f"PhaseNet_{data.name}"
 
-    # train_phasenet(
-    #     model=model, model_name=model_name, data=data, learning_rate=1e-2, epochs=5
-    # )
+    train_phasenet(
+        model=model, model_name=model_name, data=data, learning_rate=1e-2, epochs=5
+    )
 
     # run with: uv run src/my_project/main.py --model_path <root/path-to-model>
-    evaluate_phasenet(model=model, model_path=model_path, data=data)
+    # evaluate_phasenet(model=model, model_path=model_path, data=data)
 
 
 if __name__ == "__main__":
@@ -150,9 +153,9 @@ if __name__ == "__main__":
 
     # Run appropriate workflow
     if args.mode == "tutorial":
-        if not args.model_path:
-            print("Error: --model_path is required for tutorial mode")
-            exit(1)
+        # if not args.model_path:
+        #     print("Error: --model_path is required for tutorial mode")
+        #     exit(1)
         tutorial_tests(data, model_path=args.model_path)
     elif args.mode == "magnitude_train":
         magnitude_train(data, epochs=args.epochs)
