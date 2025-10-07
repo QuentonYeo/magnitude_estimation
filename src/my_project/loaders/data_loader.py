@@ -88,7 +88,7 @@ def load_dataset(
     model: WaveformModel,
     type: str,
     batch_size: int = 256,
-    num_workers: int = 4,
+    num_workers: int = 8,
 ) -> tuple[sbg.GenericGenerator, DataLoader, BenchmarkDataset]:
     train, dev, test = data.train_dev_test()
 
@@ -120,7 +120,9 @@ def load_dataset(
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        worker_init_fn=worker_seeding,
+        prefetch_factor=2,
+        # worker_init_fn=worker_seeding,
+        pin_memory=True,
     )
 
     return ds_generator, loader, data
