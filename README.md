@@ -4,11 +4,13 @@
 
 ### Installation
 
-1. After cloning the repo, run `uv sync` to install the required dependencies
-   
-   This will automatically install PyTorch with CUDA support (version 2.5.1+cu121) if available on your system.
+1. After cloning the repo, run the following depending on the platform
+
+- If CPU based: `uv sync --extra cpu`
+- If GPU based: `uv sync --extra gpu`
 
 2. Verify CUDA installation (optional):
+
    ```bash
    uv run python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
    ```

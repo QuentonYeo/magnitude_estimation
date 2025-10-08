@@ -211,4 +211,4 @@ __marimo__/
 *.csv
 
 # Lock files
-*.lock
+uv.lock
