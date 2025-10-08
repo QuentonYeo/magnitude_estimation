@@ -1086,8 +1086,8 @@ wheels = [
 
 [[package]]
 name = "seisbench"
-version = "0.1.dev933+g33a08c46c"
-source = { git = "https://github.com/QuentonYeo/seisbench_usepkg_patch.git#33a08c46c40a8bcede065fa13bf0f44bb2c4cc0b" }
+version = "0.1.dev933+g925b870a3"
+source = { git = "https://github.com/QuentonYeo/seisbench_usepkg_patch.git#925b870a34ef1ba574b749bdb1f3328af2e4a0aa" }
 dependencies = [
     { name = "bottleneck" },
     { name = "h5py" },
@@ -1097,7 +1097,6 @@ dependencies = [
     { name = "pandas" },
     { name = "scipy" },
     { name = "torch" },
-    { name = "torchvision" },
     { name = "tqdm" },
 ]
 
@@ -1154,12 +1153,16 @@ source = { editable = "." }
 dependencies = [
     { name = "scikit-learn" },
     { name = "seisbench" },
+    { name = "torch" },
+    { name = "torchvision" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "seisbench", git = "https://github.com/QuentonYeo/seisbench_usepkg_patch.git" },
+    { name = "torch", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cu121" },
+    { name = "torchvision", specifier = ">=0.15.0", index = "https://download.pytorch.org/whl/cu121" },
 ]
 
 [[package]]

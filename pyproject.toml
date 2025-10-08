@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "scikit-learn>=1.7.2",
     "seisbench",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
 ]
 
 [build-system]
@@ -18,3 +20,10 @@ packages = ["src/my_project"]
 
 [tool.uv.sources]
 seisbench = { git = "https://github.com/QuentonYeo/seisbench_usepkg_patch.git" }
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true

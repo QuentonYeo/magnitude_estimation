@@ -209,3 +209,6 @@ __marimo__/
 # Large Files
 *.pt
 *.csv
+
+# Lock files
+*.lock
