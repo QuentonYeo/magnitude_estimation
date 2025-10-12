@@ -9,12 +9,12 @@ def train_model(
     model_name: str,
     model,  # YourModelName instance
     data: sbd.BenchmarkDataset,
-    learning_rate=1e-3,
-    epochs=50,
+    learning_rate=0.001,
+    epochs=100,
     batch_size=256,
     optimizer_name="Adam",
     weight_decay=1e-5,
-    scheduler_patience=5,
+    early_stopping_patience=10,
     save_every=5,
 ):
     """
@@ -24,12 +24,12 @@ def train_model(
         model_name: Name for saving model checkpoints
         model: Model instance
         data: Dataset to train on
-        learning_rate: Learning rate for optimizer
-        epochs: Number of training epochs
+        learning_rate: Learning rate for optimizer (default: 0.001)
+        epochs: Number of training epochs (default: 100)
         batch_size: Batch size for training
         optimizer_name: Optimizer type ("Adam" or "AdamW")
         weight_decay: Weight decay for optimizer
-        scheduler_patience: Patience for learning rate scheduler
+        early_stopping_patience: Stop if validation loss doesn't decrease for N epochs (default: 10)
         save_every: Save model every N epochs
     """
     print("\n" + "=" * 50)
@@ -59,10 +59,9 @@ def train_model(
 
     criterion = nn.MSELoss()  # Mean Squared Error for regression
 
-    # Learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=scheduler_patience
-    )
+    # Early stopping tracking
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
 
     def train_loop(dataloader):
         model.train()
@@ -127,7 +126,6 @@ def train_model(
     os.makedirs(save_dir, exist_ok=True)
 
     # Training loop
-    best_val_loss = float("inf")
     train_losses = []
     val_losses = []
 
@@ -143,16 +141,22 @@ def train_model(
         val_loss = validation_loop(dev_loader)
         val_losses.append(val_loss)
 
-        # Learning rate scheduling
-        scheduler.step(val_loss)
-
-        # Save best model
+        # Early stopping check
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            best_model_path = os.path.join(save_dir, f"model_best_{timestamp}.pt")
-            torch.save(model.state_dict(), best_model_path)
-            print(f"New best model saved: {best_model_path}")
+            epochs_without_improvement = 0
+            # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # best_model_path = os.path.join(save_dir, f"model_best_{timestamp}.pt")
+            # torch.save(model.state_dict(), best_model_path)
+            # print(f"New best model saved: {best_model_path}")
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epoch(s)")
+
+            if epochs_without_improvement >= early_stopping_patience:
+                print(f"\nEarly stopping triggered after {epoch + 1} epochs")
+                print(f"Best validation loss: {best_val_loss:.6f}")
+                break
 
         # Save checkpoint
         if (epoch + 1) % save_every == 0:
