@@ -7,6 +7,9 @@ requires-python = ">=3.12"
 dependencies = [
   "scikit-learn>=1.7.2",
   "seisbench",
+  "optuna>=3.0.0",
+  "matplotlib>=3.7.0",
+  "pandas>=2.0.0",
   # torch/torchvision chosen via extras below
 ]
 

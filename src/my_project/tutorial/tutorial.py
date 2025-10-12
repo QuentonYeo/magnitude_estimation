@@ -196,7 +196,7 @@ def evaluate_phasenet(
     model: sbm.WaveformModel, model_path: str, data: sbd.BenchmarkDataset
 ):
     # Load weights from specified checkpoint
-    state_dict = torch.load(model_path, map_location=model.device)
+    state_dict = torch.load(model_path, map_location=model.device, weights_only=True)
     model.load_state_dict(state_dict)
     print(f"Loaded model weights from {model_path}")
 
@@ -217,7 +217,6 @@ def evaluate_phasenet(
         x_preproc = model.annotate_batch_pre(x, {})
         pred = model(x_preproc)[0].cpu().numpy()
     axs[2].plot(pred.T)
-    plt.show()
 
     # Evaluate on all test samples with progress bar
     all_preds = []
@@ -247,3 +246,5 @@ def evaluate_phasenet(
     print(f"Test MSE: {mse:.6f}")
     print(f"Test RMSE: {rmse:.6f}")
     print(f"Test R^2 Score: {r2:.6f}")
+
+    plt.show()

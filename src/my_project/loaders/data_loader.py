@@ -4,9 +4,6 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from seisbench.models.base import WaveformModel
 from seisbench.data.base import BenchmarkDataset
-from seisbench.generate.labeling import SupervisedLabeller
-
-import seisbench.data as sbd
 import seisbench.generate as sbg
 import seisbench.models as sbm
 from seisbench.util import worker_seeding
@@ -14,6 +11,7 @@ from seisbench.util import worker_seeding
 from my_project.utils.utils import plot_magnitude_distribution, dump_metadata_to_csv
 from my_project.loaders.magnitude_labellers import MagnitudeLabellerPhaseNet
 from my_project.models.phasenet_mag.model import PhaseNetMag
+from my_project.models.AMAG.model import AMAG
 
 # Only training for S and P picks, map the labels
 phase_dict = {
@@ -35,13 +33,17 @@ phase_dict = {
 }
 
 
-def get_magnitude_augmentation():
+def get_magnitude_augmentation(windowlen=3001):
     """Define training and validation generator for magnitude regression only:
 
     - Long window around pick
-    - Random window of 3001 samples (Phasenet input length)
+    - Random window of specified length (default 3001 for PhaseNet, 600 for AMAG)
     - Change datatype to float32 for pytorch
     - Magnitude labeller only (no phase labels)
+
+    Args:
+        windowlen (int): Length of the random window. Default is 3001 for PhaseNet.
+                        Use 600 for AMAG model.
     """
     augmentations = [
         sbg.WindowAroundSample(
@@ -51,7 +53,7 @@ def get_magnitude_augmentation():
             selection="random",
             strategy="variable",
         ),
-        sbg.RandomWindow(windowlen=3001, strategy="pad"),
+        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
         sbg.ChangeDtype(np.float32),
         MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
     ]
@@ -105,7 +107,9 @@ def load_dataset(
     ds_generator = sbg.GenericGenerator(dataset)
 
     if isinstance(model, PhaseNetMag):
-        ds_generator.add_augmentations(get_magnitude_augmentation())
+        ds_generator.add_augmentations(get_magnitude_augmentation(windowlen=3001))
+    elif isinstance(model, AMAG):
+        ds_generator.add_augmentations(get_magnitude_augmentation(windowlen=601))
     elif isinstance(model, (sbm.PhaseNet)):
         ds_generator.add_augmentations(get_augmentation(model))
         ds_generator.add_augmentations(

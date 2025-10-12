@@ -79,12 +79,12 @@ def tutorial_tests(data: BenchmarkDataset, model_path: str = ""):
 
     model_name = f"PhaseNet_{data.name}"
 
-    train_phasenet(
-        model=model, model_name=model_name, data=data, learning_rate=1e-2, epochs=5
-    )
+    # train_phasenet(
+    #     model=model, model_name=model_name, data=data, learning_rate=1e-2, epochs=5
+    # )
 
     # run with: uv run src/my_project/main.py --model_path <root/path-to-model>
-    # evaluate_phasenet(model=model, model_path=model_path, data=data)
+    evaluate_phasenet(model=model, model_path=model_path, data=data)
 
 
 if __name__ == "__main__":

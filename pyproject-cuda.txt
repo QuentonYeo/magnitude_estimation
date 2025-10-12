@@ -9,6 +9,9 @@ dependencies = [
   "seisbench",
   "torch>=2.5,<2.6",
   "torchvision>=0.20,<0.21",
+  "optuna>=3.0.0",
+  "matplotlib>=3.7.0",
+  "pandas>=2.0.0",
 ]
 
 [build-system]
