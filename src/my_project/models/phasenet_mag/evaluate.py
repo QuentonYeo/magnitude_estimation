@@ -34,7 +34,7 @@ def evaluate_phasenet_mag(
     print(f"Evaluating PhaseNetMag from {model_path}")
 
     # Load model weights
-    state_dict = torch.load(model_path, map_location=model.device)
+    state_dict = torch.load(model_path, map_location=model.device, weights_only=True)
     model.load_state_dict(state_dict)
     model.eval()
     print(f"Loaded model weights from {model_path}")
@@ -182,7 +182,7 @@ def plot_prediction_examples(waveforms, targets, predictions, num_examples=5):
             ax.set_xlabel("Sample")
 
     plt.tight_layout()
-    plt.show()
+    # plt.show()
 
 
 def plot_magnitude_distribution_comparison(y_true, y_pred):
