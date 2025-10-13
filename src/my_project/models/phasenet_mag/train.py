@@ -779,6 +779,8 @@ def main():
         data = sbd.ETHZ(sampling_rate=100)
     elif args.dataset == "GEOFON":
         data = sbd.GEOFON(sampling_rate=100)
+    elif args.dataset == "STEAD":
+        data = sbd.STEAD(sampling_rate=100)
     else:
         raise ValueError(f"Unsupported dataset: {args.dataset}")
 
