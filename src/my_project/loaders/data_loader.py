@@ -9,7 +9,10 @@ import seisbench.models as sbm
 from seisbench.util import worker_seeding
 
 from my_project.utils.utils import plot_magnitude_distribution, dump_metadata_to_csv
-from my_project.loaders.magnitude_labellers import MagnitudeLabellerPhaseNet
+from my_project.loaders.magnitude_labellers import (
+    MagnitudeLabellerPhaseNet,
+    MagnitudeLabellerAMAG,
+)
 from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.AMAG.model import AMAG
 
@@ -36,7 +39,7 @@ phase_dict = {
 def get_magnitude_augmentation(windowlen=3001):
     """Define training and validation generator for magnitude regression only:
 
-    - Long window around pick
+    - Window around FIRST P pick with controlled randomization
     - Random window of specified length (default 3001 for PhaseNet, 600 for AMAG)
     - Change datatype to float32 for pytorch
     - Magnitude labeller only (no phase labels)
@@ -45,13 +48,16 @@ def get_magnitude_augmentation(windowlen=3001):
         windowlen (int): Length of the random window. Default is 3001 for PhaseNet.
                         Use 600 for AMAG model.
     """
+    # P-phase columns only (prioritize first P pick)
+    p_phase_keys = [key for key in phase_dict.keys() if phase_dict[key] == "P"]
+
     augmentations = [
         sbg.WindowAroundSample(
-            list(phase_dict.keys()),
-            samples_before=3000,
-            windowlen=6000,
-            selection="random",
-            strategy="variable",
+            p_phase_keys,  # Only P picks
+            samples_before=int(windowlen * 0.5),  # 30% before pick, 70% after
+            windowlen=windowlen * 2,  # Larger initial window for flexibility
+            selection="first",  # Always use first available P pick
+            strategy="pad",  # Pad if needed to maintain consistent length
         ),
         sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
         sbg.ChangeDtype(np.float32),
@@ -60,21 +66,56 @@ def get_magnitude_augmentation(windowlen=3001):
     return augmentations
 
 
+def get_magnitude_and_phase_augmentation(windowlen=3001):
+    """Define training and validation generator with both phase and magnitude labels:
+
+    - Window around FIRST P pick with controlled randomization
+    - Random window of specified length
+    - Change datatype to float32 for pytorch
+    - Both probabilistic phase labels AND magnitude labels
+
+    Args:
+        windowlen (int): Length of the random window. Default is 3001 for PhaseNet, 600 for AMAG.
+    """
+    # P-phase columns only (prioritize first P pick)
+    p_phase_keys = [key for key in phase_dict.keys() if phase_dict[key] == "P"]
+
+    augmentations = [
+        sbg.WindowAroundSample(
+            p_phase_keys,  # Only P picks
+            samples_before=int(windowlen * 0.5),
+            windowlen=windowlen * 2,  # Larger initial window for flexibility
+            selection="first",  # Always use first available P pick
+            strategy="pad",  # Pad if needed
+        ),
+        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
+        sbg.ChangeDtype(np.float32),
+        sbg.ProbabilisticLabeller(
+            label_columns=phase_dict, model_labels=["P", "S", "N"], sigma=30, dim=0
+        ),
+        MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
+    ]
+    return augmentations
+
+
 def get_augmentation(model: WaveformModel):
     """Define training and validation generator with the following augmentations:
 
-    - Long window around pick
+    - Window around FIRST P pick with controlled randomization
     - Random window of 3001 samples (Phasenet input length)
     - Change datatype to float32 for pytorch
-    - Probablistic label
+    - Probablistic phase label
     """
+    # P-phase columns only (prioritize first P pick)
+    p_phase_keys = [key for key in phase_dict.keys() if phase_dict[key] == "P"]
+
     augmentations = [
         sbg.WindowAroundSample(
-            list(phase_dict.keys()),
-            samples_before=3000,
-            windowlen=6000,
-            selection="random",
-            strategy="variable",
+            p_phase_keys,  # Only P picks
+            samples_before=int(3001 * 0.5),  # 30% before pick, 70% after
+            windowlen=3001 * 2,  # Larger initial window for flexibility
+            selection="first",  # Always use first available P pick
+            strategy="pad",  # Pad if needed
         ),
         sbg.RandomWindow(windowlen=3001, strategy="pad"),
         sbg.ChangeDtype(np.float32),
@@ -82,6 +123,53 @@ def get_augmentation(model: WaveformModel):
             label_columns=phase_dict, model_labels=model.labels, sigma=30, dim=0
         ),
     ]
+    return augmentations
+
+
+def get_amag_augmentation(windowlen=600):
+    """
+    Define augmentation pipeline for AMAG model following the paper's preprocessing:
+
+    1. Bandpass filter 1-20 Hz (mentioned in paper)
+    2. Window around first P pick
+    3. Random window of 600 samples (6 seconds at 100 Hz)
+    4. Change dtype to float32
+    5. AMAG magnitude labelling with equation (11): label = mag + 1 for signal
+
+    Note: Detrending and demeaning are handled in the model's annotate_batch_pre method.
+
+    Args:
+        windowlen (int): Length of the window in samples (default 600 for 6s at 100Hz)
+
+    Returns:
+        list: Augmentation pipeline for SeisBench generator
+    """
+    p_phase_keys = list(phase_dict.keys())
+
+    augmentations = [
+        # 1. Bandpass filter 1-20 Hz (paper's preprocessing step)
+        sbg.Filter(
+            N=4,  # Filter order
+            Wn=[1.0, 20.0],  # 1-20 Hz as specified in paper
+            btype="bandpass",
+        ),
+        # 2. Window around first P pick with flexibility
+        sbg.WindowAroundSample(
+            p_phase_keys,
+            samples_before=int(windowlen * 0.5),  # Center around P arrival
+            windowlen=windowlen * 2,  # Larger initial window for flexibility
+            selection="first",  # Always use first available P pick
+            strategy="pad",  # Pad if needed
+        ),
+        # 3. Random window to get exactly 600 samples
+        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
+        # 4. Change dtype to float32 for PyTorch
+        sbg.ChangeDtype(np.float32),
+        # 5. AMAG magnitude labeller with equation (11): mag + 1
+        MagnitudeLabellerAMAG(phase_dict=phase_dict, debug=False),
+        sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=30, dim=0),
+    ]
+
     return augmentations
 
 
@@ -107,9 +195,9 @@ def load_dataset(
     ds_generator = sbg.GenericGenerator(dataset)
 
     if isinstance(model, PhaseNetMag):
-        ds_generator.add_augmentations(get_magnitude_augmentation(windowlen=3001))
+        ds_generator.add_augmentations(get_magnitude_augmentation())
     elif isinstance(model, AMAG):
-        ds_generator.add_augmentations(get_magnitude_augmentation(windowlen=601))
+        ds_generator.add_augmentations(get_amag_augmentation())
     elif isinstance(model, (sbm.PhaseNet)):
         ds_generator.add_augmentations(get_augmentation(model))
         ds_generator.add_augmentations(
@@ -133,13 +221,18 @@ def load_dataset(
 
 
 if __name__ == "__main__":
+    # Load dataset first
+    import seisbench.data as sbd
+
+    data = sbd.ETHZ(sampling_rate=100)  # Or whatever dataset you want to use
+
     # Load standard Phasenet
     model = sbm.PhaseNet(
         phases="PSN", norm="std", default_args={"blinding": (200, 200)}
     )
     model.to_preferred_device(verbose=True)
 
-    train_generator, _, data = load_dataset(model, "train")
+    train_generator, _, data = load_dataset(data, model, "train")
 
     # Example training input
     sample = train_generator[np.random.randint(len(train_generator))]

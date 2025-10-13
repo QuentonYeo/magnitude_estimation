@@ -1,8 +1,10 @@
 import os
 import csv
+import numpy as np
 import matplotlib.pyplot as plt
 
 from seisbench.data import BenchmarkDataset
+from seisbench.generate import GenericGenerator
 
 
 def dump_metadata_to_csv(sbd: BenchmarkDataset, filename="metadata.csv"):
@@ -162,3 +164,65 @@ def plot_training_history(history_path: str):
         print("Small train-val gap indicates good generalization")
 
     return history
+
+
+def plot_samples(generator: GenericGenerator, single: bool = False):
+    try:
+        while True:
+            # Get random sample
+            random_index = np.random.randint(len(generator))
+            sample = generator[random_index]
+
+            print(f"\nSample index: {random_index}")
+            print(sample)
+
+            fig = plt.figure(figsize=(15, 12))
+            axs = fig.subplots(
+                3,
+                1,
+                sharex=True,
+                gridspec_kw={"hspace": 0.2, "height_ratios": [3, 1, 1]},
+            )
+
+            # Plot Z, N, E waveforms
+            channel_names = ["Z", "N", "E"]
+            for i in range(sample["X"].shape[0]):
+                axs[0].plot(sample["X"][i], label=channel_names[i])
+            axs[0].set_ylabel("Waveform")
+            axs[0].legend()
+
+            # Plot P, S, Noise phase labels with distinctive styles
+            phase_names = ["P", "S", "Noise"]
+            colors = ["tab:blue", "tab:green", "tab:orange"]
+            linestyles = ["-", "--", ":"]  # solid, dashed, dotted
+            linewidths = [2.5, 2.5, 2.5]
+            alphas = [0.8, 0.8, 0.8]
+
+            for i in range(sample["y"].shape[0]):
+                axs[1].plot(
+                    sample["y"][i],
+                    label=phase_names[i],
+                    color=colors[i],
+                    linestyle=linestyles[i],
+                    linewidth=linewidths[i],
+                    alpha=alphas[i],
+                )
+            axs[1].set_ylabel("Phase Label")
+            axs[1].legend()
+
+            # Plot magnitude label
+            if "magnitude" in sample:
+                mag_data = sample["magnitude"]
+                axs[2].plot(mag_data, color="tab:orange")
+                axs[2].set_ylabel("Magnitude Label")
+            else:
+                axs[2].text(0.5, 0.5, "No magnitude label", ha="center", va="center")
+            axs[2].set_xlabel("Sample Index")
+
+            plt.show()
+
+            if single:
+                return
+
+    except KeyboardInterrupt:
+        print("\nStopped by user")

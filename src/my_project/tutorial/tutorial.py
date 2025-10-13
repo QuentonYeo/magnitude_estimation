@@ -3,6 +3,7 @@ import seisbench.data as sbd
 import seisbench.generate as sbg
 import seisbench.models as sbm
 from seisbench.data import BenchmarkDataset
+from my_project.loaders.magnitude_labellers import MagnitudeLabellerPhaseNet
 
 import os
 import argparse
@@ -11,9 +12,29 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import tqdm
 import torch
+import random
 from sklearn.metrics import mean_squared_error, r2_score
 
 from my_project.loaders import data_loader as dl
+from my_project.utils import utils
+
+phase_dict = {
+    "trace_p_arrival_sample": "P",
+    "trace_pP_arrival_sample": "P",
+    "trace_P_arrival_sample": "P",
+    "trace_P1_arrival_sample": "P",
+    "trace_Pg_arrival_sample": "P",
+    "trace_Pn_arrival_sample": "P",
+    "trace_PmP_arrival_sample": "P",
+    "trace_pwP_arrival_sample": "P",
+    "trace_pwPm_arrival_sample": "P",
+    "trace_s_arrival_sample": "S",
+    "trace_S_arrival_sample": "S",
+    "trace_S1_arrival_sample": "S",
+    "trace_Sg_arrival_sample": "S",
+    "trace_SmS_arrival_sample": "S",
+    "trace_Sn_arrival_sample": "S",
+}
 
 
 def test_load_data():
@@ -77,36 +98,17 @@ def test_generator():
     print("Example:", sample)
 
     plt.plot(sample["X"].T)
-    plt.show()
 
-    generator.augmentation(sbg.RandomWindow(windowlen=3000))
+    generator.augmentation(sbg.RandomWindow(windowlen=6000))
     generator.augmentation(sbg.Normalize(detrend_axis=-1, amp_norm_axis=-1))
-
-    print(generator)
-
-    sample = generator[200]
-    print("Example:", sample)
-
-    plt.plot(sample["X"].T)
-    plt.show()
-
     generator.augmentation(
-        sbg.ProbabilisticLabeller(
-            label_columns=["trace_P1_arrival_sample"], sigma=50, dim=-2
-        )
+        sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=30, dim=0),
     )
+    generator.add_augmentations([MagnitudeLabellerPhaseNet(phase_dict=phase_dict)])
 
     print(generator)
 
-    sample = generator[200]
-    print("Sample keys:", sample.keys())
-
-    fig = plt.figure(figsize=(10, 7))
-    axs = fig.subplots(2, 1)
-    axs[0].plot(sample["X"].T)
-    axs[1].plot(sample["y"].T)
-
-    plt.show()
+    utils.plot_samples(generator, single=True)
 
 
 def train_phasenet(
