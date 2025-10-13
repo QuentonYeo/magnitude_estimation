@@ -119,6 +119,11 @@ def train_phasenet_mag_with_optuna(
 
         best_val_loss = float("inf")
 
+        # Create directory for saving trial models
+        trial_save_dir = f"src/trained_weights/{model_name}/optuna_trials"
+        os.makedirs(trial_save_dir, exist_ok=True)
+        best_model_path = None
+
         print(f"🚀 Starting training for Trial {trial.number}")
         print(f"Target: Find validation loss < {best_val_loss}")
 
@@ -192,6 +197,15 @@ def train_phasenet_mag_with_optuna(
             if is_best:
                 best_val_loss = avg_val_loss
                 best_indicator = "🌟 NEW BEST!"
+
+                # Save the best model for this trial
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                best_model_path = os.path.join(
+                    trial_save_dir,
+                    f"trial_{trial.number}_best_epoch_{epoch+1}_{timestamp}.pt",
+                )
+                torch.save(model.state_dict(), best_model_path)
+                print(f"  💾 Best model saved: {best_model_path}")
             else:
                 best_indicator = ""
 
@@ -221,6 +235,10 @@ def train_phasenet_mag_with_optuna(
         print(f"   Best Validation Loss: {best_val_loss:.6f}")
         print(f"   Trial Duration: {trial_duration.total_seconds():.1f}s")
         print(f"   Final Learning Rate: {optimizer.param_groups[0]['lr']:.2e}")
+        if best_model_path:
+            print(f"   💾 Best Model Saved: {best_model_path}")
+        else:
+            print(f"   ⚠️  No model saved (no improvement found)")
 
         return best_val_loss
 
