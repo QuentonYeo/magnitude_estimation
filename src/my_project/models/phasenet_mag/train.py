@@ -118,6 +118,8 @@ def train_phasenet_mag_with_optuna(
         )
 
         best_val_loss = float("inf")
+        epochs_without_improvement = 0
+        early_stopping_patience = 5
 
         # Create directory for saving trial models
         trial_save_dir = f"src/trained_weights/{model_name}/optuna_trials"
@@ -126,6 +128,7 @@ def train_phasenet_mag_with_optuna(
 
         print(f"🚀 Starting training for Trial {trial.number}")
         print(f"Target: Find validation loss < {best_val_loss}")
+        print(f"Early stopping patience: {early_stopping_patience} epochs")
 
         # Training loop with pruning
         for epoch in range(max_epochs):
@@ -196,6 +199,7 @@ def train_phasenet_mag_with_optuna(
             is_best = avg_val_loss < best_val_loss
             if is_best:
                 best_val_loss = avg_val_loss
+                epochs_without_improvement = 0  # Reset counter on improvement
                 best_indicator = "🌟 NEW BEST!"
 
                 # Save the best model for this trial
@@ -207,7 +211,8 @@ def train_phasenet_mag_with_optuna(
                 torch.save(model.state_dict(), best_model_path)
                 print(f"  💾 Best model saved: {best_model_path}")
             else:
-                best_indicator = ""
+                epochs_without_improvement += 1
+                best_indicator = f"(No improvement for {epochs_without_improvement} epoch{'s' if epochs_without_improvement > 1 else ''})"
 
             # Current learning rate
             current_lr = optimizer.param_groups[0]["lr"]
@@ -228,6 +233,15 @@ def train_phasenet_mag_with_optuna(
                     f"  ✂️  Trial {trial.number} PRUNED at epoch {epoch+1} (Val Loss: {avg_val_loss:.4f})"
                 )
                 raise optuna.TrialPruned()
+
+            # Early stopping check
+            if epochs_without_improvement >= early_stopping_patience:
+                print(
+                    f"  🛑 Early stopping triggered at epoch {epoch+1} "
+                    f"(No improvement for {early_stopping_patience} epochs)"
+                )
+                print(f"  Best validation loss achieved: {best_val_loss:.6f}")
+                break
 
         # Trial completion summary
         trial_duration = datetime.now() - trial_start_time
