@@ -1,8 +1,19 @@
 # Machine Learning in Seismic Magnitude Estimation
 
-### Description
+## Table of Contents
 
-### Installation
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Model Configuration](#model-configuration)
+- [Complete Command Reference](#complete-command-reference)
+- [Unified Architecture](#unified-architecture)
+- [Hyperparameter Tuning](#hyperparameter-tuning)
+
+## Description
+
+This repository provides a unified framework for seismic phase detection and magnitude estimation using deep learning models. The system supports multiple model architectures with configurable parameters, including PhaseNet variants and advanced magnitude estimation networks.
+
+## Installation
 
 1. After cloning the repo, run the following depending on the platform
 
@@ -17,52 +28,407 @@
 
 3. If a previous version of custom seisbench persists, run `uv lock --upgrade` then `uv sync`
 
-4. If the system still does not install the cuda version correctly, copy the contents of `py
-project-cuda.txt` into the pyproject and try again with `uv sync`.
+4. If the system still does not install the cuda version correctly, copy the contents of `pyproject-cuda.txt` into the pyproject and try again with `uv sync`.
 
-### Basic Commands
+## Quick Start
 
-#### Seisbench phasenet tutorial
+The main script provides a unified interface for all seismic analysis workflows. Commands are organized by mode (`train_phase`, `train_mag`, `eval_phase`, `eval_mag`) with `--model_type` specifying the specific model.
 
-The tutorial has been modularized into three separate functions that can be run independently:
+#### Basic Training
 
-**Test data loading and generator**
+```bash
+# Train a PhaseNet model for phase detection
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet --dataset ETHZ --epochs 10
 
-- Tests data downloading from the seisbench API
-- Tests generator initialization from seisbench
-- By default seisbench downloads the waveforms and metadata to `~/.seisbench`
+# Train a magnitude estimation model
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 20
+```
 
-`uv run src/my_project/main.py --mode tutorial_test_load_and_generator --dataset ETHZ`
+#### Basic Evaluation
 
-**Train PhaseNet model**
+```bash
+# Evaluate a phase detection model
+uv run python -m src.my_project.main --mode eval_phase --model_type phasenet --dataset ETHZ --model_path path/to/model.pt
 
-- Trains a standard PhaseNet model on the provided dataset
+# Evaluate a magnitude model with plots
+uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ --model_path path/to/model.pt --plot
+```
 
-`uv run src/my_project/main.py --mode tutorial_train_phasenet --dataset ETHZ --epochs 5`
+#### Getting Help
 
-**Evaluate PhaseNet model**
+```bash
+# See all available options
+uv run python -m src.my_project.main --help
+```
 
-- Evaluates a trained PhaseNet model from a given path on a dataset
+> 📖 **For complete command reference and model configuration, see the sections below.**
 
-`uv run src/my_project/main.py --mode tutorial_evaluate_phasenet --dataset ETHZ --model_path path/to/model.pt`
+## Model Configuration
 
-**Legacy tutorial mode (deprecated)**
+All models (except the standard PhaseNet) support configurable parameters that can be set via command line arguments. This allows easy experimentation with different model architectures and capacities.
 
-- Runs the original tutorial (evaluation only)
+### Available Models and Parameters
 
-`uv run src/my_project/main.py --mode tutorial --model_path path/to/model.pt`
+#### 1. PhaseNetLSTM (`phasenet_lstm`)
 
-#### Custom manitude regression PhaseNet
+**Description**: PhaseNet with LSTM layers for enhanced temporal modeling.
 
-**Train**
-`uv run src/my_project/main.py --mode magnitude_train --dataset ETHZ --epochs 5`
+**Configurable Parameters:**
 
-**Evaluate**
-`uv run src/my_project/main.py --mode magnitude_eval --dataset ETHZ --model_path path/to/model.pt --plot`
+- `--filter_factor` (int, default=1): Controls model capacity (multiplies filter sizes)
+- `--lstm_hidden_size` (int, default=auto): LSTM hidden size (None=auto-calculated)
+- `--lstm_num_layers` (int, default=1): Number of LSTM layers
+- `--lstm_bidirectional` (flag, default=True): Use bidirectional LSTM
 
-**Plot model history**
-This one is more general it plots the error and loss over training. Use the `--plot` parameter to show the plot. Otherwise, it will just save the png
-`uv run src/my_project/main.py --mode plot_history --model_path path/to/training_history.pt --plot`
+**Examples:**
+
+```bash
+# Default configuration
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_lstm --dataset ETHZ
+
+# High capacity model
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_lstm \
+       --dataset ETHZ --filter_factor 2 --lstm_hidden_size 256 --lstm_num_layers 3
+
+# Lightweight model
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_lstm \
+       --dataset ETHZ --lstm_hidden_size 64 --lstm_num_layers 1
+```
+
+#### 2. PhaseNetConvLSTM (`phasenet_conv_lstm`)
+
+**Description**: PhaseNet with Convolutional LSTM layers for spatial-temporal modeling.
+
+**Configurable Parameters:**
+
+- `--filter_factor` (int, default=1): Controls model capacity
+- `--convlstm_hidden` (int, default=64): ConvLSTM hidden size
+
+**Examples:**
+
+```bash
+# Default configuration
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_conv_lstm --dataset ETHZ
+
+# High capacity model
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_conv_lstm \
+       --dataset ETHZ --filter_factor 2 --convlstm_hidden 128
+```
+
+#### 3. PhaseNetMag (`phasenet_mag`)
+
+**Description**: PhaseNet architecture adapted for magnitude regression.
+
+**Configurable Parameters:**
+
+- `--filter_factor` (int, default=1): Controls model capacity
+- `--norm` (str, default="std"): Normalization method ("std" or "peak")
+
+**Examples:**
+
+```bash
+# Default configuration with standard normalization
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag --dataset ETHZ
+
+# High capacity model with peak normalization
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
+       --dataset ETHZ --filter_factor 2 --norm peak
+```
+
+#### 4. MagnitudeNet (`amag_v2`)
+
+**Description**: Advanced magnitude estimation model with LSTM and attention mechanisms.
+
+**Configurable Parameters:**
+
+- `--filter_factor` (int, default=1): Controls model capacity
+- `--lstm_hidden` (int, default=128): LSTM hidden size
+- `--lstm_layers` (int, default=2): Number of LSTM layers
+- `--dropout` (float, default=0.2): Dropout rate
+
+**Examples:**
+
+```bash
+# Default configuration
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ
+
+# High capacity model
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
+       --dataset ETHZ --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3
+
+# Lightweight model
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
+       --dataset ETHZ --lstm_hidden 64 --lstm_layers 1 --dropout 0.1
+```
+
+### Important Notes
+
+1. **Parameter Consistency**: When evaluating models, use the **same parameters** that were used during training.
+
+   ```bash
+   # Training with custom parameters
+   uv run python -m src.my_project.main --mode train_phase --model_type phasenet_lstm \
+          --filter_factor 2 --lstm_hidden_size 256
+
+   # Evaluation with matching parameters
+   uv run python -m src.my_project.main --mode eval_phase --model_type phasenet_lstm \
+          --model_path path/to/model.pt --filter_factor 2 --lstm_hidden_size 256
+   ```
+
+2. **Filter Factor**: The `--filter_factor` parameter is available for all models and is the primary way to control overall model capacity.
+
+3. **Default Values**: All parameters have sensible defaults, so only specify the ones you want to change.
+
+## Complete Command Reference
+
+uv run python -m src.my_project.main --mode eval_phase --model_type phasenet --dataset ETHZ --model_path path/to/model.pt
+
+# Evaluate a magnitude model with plots
+
+uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ --model_path path/to/model.pt --plot
+
+````
+
+#### Getting Help
+
+```bash
+# See all available options
+uv run python -m src.my_project.main --help
+````
+
+> 📖 **For complete command reference and examples, see the [Command Reference](#complete-command-reference) section below.**
+
+## Complete Command Reference
+
+### Command Syntax
+
+```bash
+uv run python -m src.my_project.main [OPTIONS]
+```
+
+### Required Arguments
+
+| Argument | Description   | Choices                                                                                                                                                                       | Default                            |
+| -------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `--mode` | Workflow mode | `train_phase`, `train_mag`, `eval_phase`, `eval_mag`, `tutorial_test_load_and_generator`, `tutorial_train_phasenet`, `tutorial_evaluate_phasenet`, `tutorial`, `plot_history` | `tutorial_test_load_and_generator` |
+
+### Core Arguments
+
+| Argument       | Description        | Choices                                                                      | Default    | Notes                             |
+| -------------- | ------------------ | ---------------------------------------------------------------------------- | ---------- | --------------------------------- |
+| `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                         | `ETHZ`     |                                   |
+| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `amag_v2` | `phasenet` |                                   |
+| `--model_path` | Path to model file | Any valid path                                                               | `""`       | Required for evaluation modes     |
+| `--epochs`     | Training epochs    | Positive integer                                                             | `5`        | For training modes only           |
+| `--plot`       | Show/save plots    | Flag (no value)                                                              | `False`    | For `eval_mag` and `plot_history` |
+
+### Model Configuration Arguments
+
+#### Common Parameters (All Models)
+
+| Argument          | Description           | Type | Default | Notes                                    |
+| ----------------- | --------------------- | ---- | ------- | ---------------------------------------- |
+| `--filter_factor` | Model capacity factor | int  | 1       | Multiplies filter sizes throughout model |
+
+#### PhaseNetLSTM Parameters
+
+| Argument               | Description            | Type | Default | Notes                     |
+| ---------------------- | ---------------------- | ---- | ------- | ------------------------- |
+| `--lstm_hidden_size`   | LSTM hidden size       | int  | auto    | None for auto-calculation |
+| `--lstm_num_layers`    | Number of LSTM layers  | int  | 1       |                           |
+| `--lstm_bidirectional` | Use bidirectional LSTM | flag | True    | Include flag to enable    |
+
+#### PhaseNetConvLSTM Parameters
+
+| Argument            | Description          | Type | Default | Notes |
+| ------------------- | -------------------- | ---- | ------- | ----- |
+| `--convlstm_hidden` | ConvLSTM hidden size | int  | 64      |       |
+
+#### PhaseNetMag Parameters
+
+| Argument | Description          | Type | Default | Notes                  |
+| -------- | -------------------- | ---- | ------- | ---------------------- |
+| `--norm` | Normalization method | str  | "std"   | Choices: "std", "peak" |
+
+#### MagnitudeNet (AMAG v2) Parameters
+
+| Argument        | Description           | Type  | Default | Notes |
+| --------------- | --------------------- | ----- | ------- | ----- |
+| `--lstm_hidden` | LSTM hidden size      | int   | 128     |       |
+| `--lstm_layers` | Number of LSTM layers | int   | 2       |       |
+| `--dropout`     | Dropout rate          | float | 0.2     |       |
+
+### Mode-Specific Requirements
+
+#### Training Modes (`train_phase`, `train_mag`)
+
+- **Required**: `--model_type`, `--dataset`
+- **Optional**: `--epochs` (default: 5)
+- **Example**: `--mode train_phase --model_type phasenet --dataset ETHZ --epochs 10`
+
+#### Evaluation Modes (`eval_phase`, `eval_mag`)
+
+- **Required**: `--model_type`, `--dataset`, `--model_path`
+- **Optional**: `--plot` (for `eval_mag` only)
+- **Example**: `--mode eval_phase --model_type phasenet --dataset ETHZ --model_path path/to/model.pt`
+
+#### Tutorial Modes
+
+- **`tutorial_test_load_and_generator`**: Only requires `--dataset`
+- **`tutorial_train_phasenet`**: Requires `--dataset`, optional `--epochs`
+- **`tutorial_evaluate_phasenet`**: Requires `--dataset`, `--model_path`
+- **`tutorial`** (deprecated): Requires `--model_path`
+
+#### Utility Modes
+
+- **`plot_history`**: Requires `--model_path`, optional `--plot`
+
+### Available Model Types
+
+- **Phase Models:**
+
+  - `phasenet`: Standard PhaseNet for seismic phase detection
+  - `phasenet_lstm`: PhaseNet with LSTM layers for enhanced temporal modeling
+  - `phasenet_conv_lstm`: PhaseNet with Convolutional LSTM layers
+
+- **Magnitude Models:**
+  - `phasenet_mag`: PhaseNet adapted for magnitude regression
+  - `amag_v2`: Advanced Magnitude estimation model (MagnitudeNet)
+
+### Available Datasets
+
+- `ETHZ`: Swiss Seismological Service dataset
+- `STEAD`: Stanford Earthquake Dataset
+- `GEOFON`: GEOFON network dataset
+- `MLAAPDE`: Machine Learning Applied to Analyze Passive seismic Data and Earthquakes
+
+### Complete Command Examples
+
+#### Phase Model Training
+
+```bash
+# Train PhaseNet for 50 epochs (standard model)
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet --dataset ETHZ --epochs 50
+
+# Train PhaseNet-LSTM with default parameters
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_lstm --dataset STEAD --epochs 30
+
+# Train PhaseNet-LSTM with high capacity
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_lstm \
+       --dataset ETHZ --epochs 50 --filter_factor 2 --lstm_hidden_size 256 --lstm_num_layers 3
+
+# Train PhaseNet-ConvLSTM with custom parameters
+uv run python -m src.my_project.main --mode train_phase --model_type phasenet_conv_lstm \
+       --dataset GEOFON --epochs 25 --filter_factor 2 --convlstm_hidden 128
+```
+
+#### Magnitude Model Training
+
+```bash
+# Train PhaseNetMag with default parameters
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag --dataset ETHZ --epochs 40
+
+# Train PhaseNetMag with peak normalization and higher capacity
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
+       --dataset ETHZ --epochs 50 --filter_factor 2 --norm peak
+
+# Train AMAG_v2 (MagnitudeNet) with default parameters
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 50
+
+# Train AMAG_v2 with high capacity configuration
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
+       --dataset ETHZ --epochs 50 --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3
+```
+
+#### Phase Model Evaluation
+
+```bash
+# Evaluate PhaseNet model
+uv run python -m src.my_project.main --mode eval_phase --model_type phasenet --dataset ETHZ \
+       --model_path src/trained_weights/PhaseNet_ETHZ/model_final_*.pt
+
+# Evaluate PhaseNet-LSTM model (use same parameters as training!)
+uv run python -m src.my_project.main --mode eval_phase --model_type phasenet_lstm --dataset ETHZ \
+       --model_path src/trained_weights/PhaseNetLSTM_*/model_final_*.pt \
+       --filter_factor 2 --lstm_hidden_size 256 --lstm_num_layers 3
+
+# Evaluate PhaseNet-ConvLSTM model
+uv run python -m src.my_project.main --mode eval_phase --model_type phasenet_conv_lstm --dataset ETHZ \
+       --model_path src/trained_weights/PhaseNetLSTM_*/model_final_*.pt \
+       --filter_factor 2 --convlstm_hidden 128
+```
+
+#### Magnitude Model Evaluation
+
+```bash
+# Evaluate PhaseNetMag model (matching training parameters)
+uv run python -m src.my_project.main --mode eval_mag --model_type phasenet_mag --dataset ETHZ \
+       --model_path src/trained_weights/PhaseNetMag_ETHZ/model_final_*.pt \
+       --filter_factor 2 --norm peak
+
+# Evaluate AMAG_v2 model with plots (matching training parameters)
+uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ \
+       --model_path trained_weights/magnitudenet_v1/model_final_*.pt --plot \
+       --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3
+```
+
+#### Tutorial Commands
+
+```bash
+# Test data loading and generators
+uv run python -m src.my_project.main --mode tutorial_test_load_and_generator --dataset ETHZ
+
+# Tutorial PhaseNet training (5 epochs)
+uv run python -m src.my_project.main --mode tutorial_train_phasenet --dataset ETHZ --epochs 5
+
+# Tutorial PhaseNet evaluation
+uv run python -m src.my_project.main --mode tutorial_evaluate_phasenet --dataset ETHZ --model_path path/to/model.pt
+
+# Legacy tutorial mode (deprecated)
+uv run python -m src.my_project.main --mode tutorial --model_path path/to/model.pt
+```
+
+#### Utility Commands
+
+```bash
+# Plot training history (save only)
+uv run python -m src.my_project.main --mode plot_history --model_path path/to/training_history_*.pt
+
+# Plot training history (show and save)
+uv run python -m src.my_project.main --mode plot_history --model_path path/to/training_history_*.pt --plot
+```
+
+### Help Command
+
+```bash
+# Display all available options
+uv run python -m src.my_project.main --help
+```
+
+### Unified Architecture
+
+The codebase has been refactored to provide a unified interface for all models:
+
+#### Key Benefits
+
+1. **Consistent Interface**: All models of the same type (phase/magnitude) use the same training and evaluation interface
+2. **Simplified Commands**: Logical command structure with `--mode` defining the workflow and `--model_type` specifying the model
+3. **Modular Design**: Easy to add new models by extending the unified functions
+4. **Code Reuse**: Eliminates duplicate training/evaluation code across different models
+
+#### Architecture Overview
+
+- **Unified Training Functions**:
+  - `train_phase_model()`: Handles PhaseNet and PhaseNet-LSTM training
+  - `train_magnitude_model()`: Handles PhaseNetMag and AMAG_v2 training
+- **Unified Evaluation Functions**:
+
+  - `evaluate_phase_model_unified()`: Handles phase model evaluation
+  - `evaluate_magnitude_model()`: Handles magnitude model evaluation
+
+- **Model Factory Functions**: Automatically create and configure models based on `--model_type`
+
+This design makes it easy to experiment with different models using the same workflow commands.
 
 ## Hyperparameter Tuning
 

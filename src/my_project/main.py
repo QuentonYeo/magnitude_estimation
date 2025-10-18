@@ -7,73 +7,259 @@ from seisbench.data import BenchmarkDataset
 from my_project.tutorial.tutorial import (
     test_load_data,
     test_generator,
-    train_phasenet,
-    evaluate_phase_model,
 )
-from my_project.models.phasenet_mag.train import train_phasenet_mag
-from my_project.models.phasenet_mag.evaluate import evaluate_phasenet_mag
-from my_project.models.phasenet_mag.model import PhaseNetMag
 
+# Import model classes
+from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
-from my_project.models.phasenetLSTM.train import (
-    train_phasenetLSTM,
-    train_phasenet_lstm_model,
-    train_phasenet_lstm_default,
-)
-
 from my_project.models.AMAG_v2.model import MagnitudeNet
-from my_project.models.AMAG_v2.train import train_magnitude_net
+
+# Import unified training and inference functions
+from my_project.unified_training import (
+    train_phase_model,
+    evaluate_phase_model_unified,
+    train_magnitude_model,
+    evaluate_magnitude_model,
+)
 
 from my_project.utils.utils import plot_training_history
 
 
-def mag_train_phasenet(data: BenchmarkDataset, epochs: int = 5):
-    """Train PhaseNetMag for magnitude regression"""
-    print(f"Training PhaseNetMag on {data.name} for {epochs} epochs...")
+def extract_model_params(args, model_type):
+    """Extract relevant model parameters from command line arguments"""
+    params = {}
 
-    # Create model
-    model = PhaseNetMag(in_channels=3, sampling_rate=100, norm="std", filter_factor=1)
-    model.to_preferred_device(verbose=True)
+    # Common parameters
+    if hasattr(args, "filter_factor") and args.filter_factor != 1:
+        params["filter_factor"] = args.filter_factor
 
-    # Model name for saving
-    model_name = f"PhaseNetMag_{data.name}"
+    # PhaseNetLSTM specific parameters
+    if model_type == "phasenet_lstm":
+        if hasattr(args, "lstm_hidden_size") and args.lstm_hidden_size is not None:
+            params["lstm_hidden_size"] = args.lstm_hidden_size
+        if hasattr(args, "lstm_num_layers") and args.lstm_num_layers != 1:
+            params["lstm_num_layers"] = args.lstm_num_layers
+        if hasattr(args, "lstm_bidirectional"):
+            params["lstm_bidirectional"] = args.lstm_bidirectional
 
-    # Train model
-    train_phasenet_mag(
-        model_name=model_name,
-        model=model,
-        data=data,
-        learning_rate=1e-4,
-        epochs=epochs,
-        batch_size=256,
-        save_every=5,
-    )
+    # PhaseNetConvLSTM specific parameters
+    elif model_type == "phasenet_conv_lstm":
+        if hasattr(args, "convlstm_hidden") and args.convlstm_hidden != 64:
+            params["convlstm_hidden"] = args.convlstm_hidden
+
+    # PhaseNetMag specific parameters
+    elif model_type == "phasenet_mag":
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
+
+    # MagnitudeNet specific parameters
+    elif model_type == "amag_v2":
+        if hasattr(args, "lstm_hidden") and args.lstm_hidden != 128:
+            params["lstm_hidden"] = args.lstm_hidden
+        if hasattr(args, "lstm_layers") and args.lstm_layers != 2:
+            params["lstm_layers"] = args.lstm_layers
+        if hasattr(args, "dropout") and args.dropout != 0.2:
+            params["dropout"] = args.dropout
+
+    return params
 
 
-def magnitude_evaluate(
-    data: BenchmarkDataset, model_path: str, plot_examples: bool = False
+def create_phase_model(model_type: str, **kwargs):
+    """Create a phase model based on model_type"""
+    if model_type == "phasenet":
+        return sbm.PhaseNet(
+            phases="PSN", norm="std", default_args={"blinding": (200, 200)}
+        )
+    elif model_type == "phasenet_lstm":
+        # Extract PhaseNetLSTM-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        lstm_hidden_size = kwargs.get("lstm_hidden_size", None)
+        lstm_num_layers = kwargs.get("lstm_num_layers", 1)
+        lstm_bidirectional = kwargs.get("lstm_bidirectional", True)
+
+        return PhaseNetLSTM(
+            filter_factor=filter_factor,
+            lstm_hidden_size=lstm_hidden_size,
+            lstm_num_layers=lstm_num_layers,
+            lstm_bidirectional=lstm_bidirectional,
+        )
+    elif model_type == "phasenet_conv_lstm":
+        # Extract PhaseNetConvLSTM-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        convlstm_hidden = kwargs.get("convlstm_hidden", 64)
+
+        return PhaseNetConvLSTM(
+            filter_factor=filter_factor,
+            convlstm_hidden=convlstm_hidden,
+        )
+    else:
+        raise ValueError(f"Unknown phase model type: {model_type}")
+
+
+def create_magnitude_model(model_type: str, **kwargs):
+    """Create a magnitude model based on model_type"""
+    if model_type == "phasenet_mag":
+        # Extract PhaseNetMag-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return PhaseNetMag(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            norm=norm,
+            filter_factor=filter_factor,
+        )
+    elif model_type == "amag_v2":
+        # Extract MagnitudeNet-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        lstm_hidden = kwargs.get("lstm_hidden", 128)
+        lstm_layers = kwargs.get("lstm_layers", 2)
+        dropout = kwargs.get("dropout", 0.2)
+
+        return MagnitudeNet(
+            in_channels=3,
+            sampling_rate=100,
+            filter_factor=filter_factor,
+            lstm_hidden=lstm_hidden,
+            lstm_layers=lstm_layers,
+            dropout=dropout,
+        )
+    else:
+        raise ValueError(f"Unknown magnitude model type: {model_type}")
+
+
+def get_model_name(model_type: str, data_name: str, **kwargs):
+    """Generate model name for saving based on model type and parameters"""
+    if model_type == "phasenet":
+        return f"PhaseNet_{data_name}"
+    elif model_type == "phasenet_lstm":
+        filter_factor = kwargs.get("filter_factor", 1)
+        lstm_hidden_size = kwargs.get("lstm_hidden_size", None)
+        lstm_num_layers = kwargs.get("lstm_num_layers", 1)
+        lstm_bidirectional = kwargs.get("lstm_bidirectional", True)
+        return f"PhaseNetLSTM_{data_name}_f{filter_factor}_h{lstm_hidden_size or 'auto'}_l{lstm_num_layers}_{'bi' if lstm_bidirectional else 'uni'}"
+    elif model_type == "phasenet_conv_lstm":
+        filter_factor = kwargs.get("filter_factor", 1)
+        lstm_hidden_size = kwargs.get("lstm_hidden_size", None)
+        lstm_num_layers = kwargs.get("lstm_num_layers", 1)
+        lstm_bidirectional = kwargs.get("lstm_bidirectional", True)
+        return f"PhaseNetConvLSTM_{data_name}_f{filter_factor}_h{lstm_hidden_size or 'auto'}_l{lstm_num_layers}_{'bi' if lstm_bidirectional else 'uni'}"
+    elif model_type == "phasenet_mag":
+        return f"PhaseNetMag_{data_name}"
+    elif model_type == "amag_v2":
+        return f"magnitudenet_v1"
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+
+
+def train_phase_unified(
+    data: BenchmarkDataset, model_type: str, epochs: int = 5, **kwargs
 ):
-    """Evaluate PhaseNetMag for magnitude regression"""
-    print(f"Evaluating PhaseNetMag on {data.name}...")
+    """Unified phase model training function"""
+    print(f"\nTraining {model_type} on {data.name} for {epochs} epochs...")
 
-    # Create model
-    model = PhaseNetMag(in_channels=3, sampling_rate=100, norm="std", filter_factor=1)
+    model = create_phase_model(model_type, **kwargs)
+    model_name = get_model_name(model_type, data.name, **kwargs)
 
-    model.to_preferred_device(verbose=True)
-    print(f"Model moved to device: {model.device}")
+    if model_type == "phasenet":
+        learning_rate = kwargs.get("learning_rate", 1e-2)
+    else:  # phasenet_lstm or phasenet_conv_lstm
+        learning_rate = kwargs.get("learning_rate", 1e-3)
 
-    # Evaluate model
-    results = evaluate_phasenet_mag(
+    return train_phase_model(
         model=model,
-        model_path=model_path,
+        model_name=model_name,
         data=data,
-        batch_size=256,
-        plot_examples=plot_examples,
-        num_examples=5,
+        learning_rate=learning_rate,
+        epochs=epochs,
+        **kwargs,
     )
 
-    return results
+
+def train_magnitude_unified(
+    data: BenchmarkDataset, model_type: str, epochs: int = 50, **kwargs
+):
+    """Unified magnitude model training function"""
+    print(f"\nTraining {model_type} on {data.name} for {epochs} epochs...")
+
+    model = create_magnitude_model(model_type, **kwargs)
+    model_name = get_model_name(model_type, data.name, **kwargs)
+
+    # Set model-specific defaults
+    if model_type == "phasenet_mag":
+        learning_rate = kwargs.get("learning_rate", 1e-4)
+        optimizer_name = kwargs.get("optimizer_name", "Adam")
+    else:  # amag_v2
+        learning_rate = kwargs.get("learning_rate", 1e-3)
+        optimizer_name = kwargs.get("optimizer_name", "AdamW")
+        kwargs.setdefault("scheduler_factor", 0.5)
+        kwargs.setdefault("gradient_clip", 1.0)
+
+    return train_magnitude_model(
+        model=model,
+        model_name=model_name,
+        data=data,
+        learning_rate=learning_rate,
+        epochs=epochs,
+        optimizer_name=optimizer_name,
+        **kwargs,
+    )
+
+
+def evaluate_phase_unified(
+    data: BenchmarkDataset, model_type: str, model_path: str, **kwargs
+):
+    """Unified phase model evaluation function"""
+    print(f"\nEvaluating {model_type} on {data.name}...")
+
+    if model_type == "phasenet":
+        model = sbm.PhaseNet(
+            phases="PSN", norm="std", default_args={"blinding": (200, 200)}
+        )
+    elif model_type == "phasenet_lstm":
+        # Extract PhaseNetLSTM-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        lstm_hidden_size = kwargs.get("lstm_hidden_size", None)
+        lstm_num_layers = kwargs.get("lstm_num_layers", 1)
+        lstm_bidirectional = kwargs.get("lstm_bidirectional", True)
+
+        model = PhaseNetLSTM(
+            filter_factor=filter_factor,
+            lstm_hidden_size=lstm_hidden_size,
+            lstm_num_layers=lstm_num_layers,
+            lstm_bidirectional=lstm_bidirectional,
+        )
+    elif model_type == "phasenet_conv_lstm":
+        # Extract PhaseNetConvLSTM-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        convlstm_hidden = kwargs.get("convlstm_hidden", 64)
+
+        model = PhaseNetConvLSTM(
+            filter_factor=filter_factor,
+            convlstm_hidden=convlstm_hidden,
+        )
+    else:
+        raise ValueError(f"Unknown phase model type: {model_type}")
+
+    return evaluate_phase_model_unified(
+        model=model, model_path=model_path, data=data, **kwargs
+    )
+
+
+def evaluate_magnitude_unified(
+    data: BenchmarkDataset, model_type: str, model_path: str, **kwargs
+):
+    """Unified magnitude model evaluation function"""
+    print(f"\nEvaluating {model_type} on {data.name}...")
+
+    model = create_magnitude_model(model_type, **kwargs)
+
+    return evaluate_magnitude_model(
+        model=model, model_path=model_path, data=data, **kwargs
+    )
 
 
 def tutorial_test_load_and_generator(data: BenchmarkDataset):
@@ -88,51 +274,6 @@ def tutorial_test_load_and_generator(data: BenchmarkDataset):
     print("Data loading and generator tests completed!")
 
 
-def tutorial_train_phasenet(data: BenchmarkDataset, epochs: int = 5):
-    """Train PhaseNet model for tutorial"""
-    print("\n" + "=" * 50)
-    print("TUTORIAL: TRAINING PHASENET")
-    print("=" * 50)
-
-    # Load standard PhaseNet
-    model = sbm.PhaseNet(
-        phases="PSN", norm="std", default_args={"blinding": (200, 200)}
-    )
-    model.to_preferred_device(verbose=True)
-
-    model_name = f"PhaseNet_{data.name}"
-
-    train_phasenet(
-        model=model, model_name=model_name, data=data, learning_rate=1e-2, epochs=epochs
-    )
-
-    print(f"PhaseNet training completed! Model saved as: {model_name}")
-
-
-def tutorial_evaluate_phasenet(data: BenchmarkDataset, model_path: str):
-    """Evaluate PhaseNet model for tutorial"""
-    print("\n" + "=" * 50)
-    print("TUTORIAL: EVALUATING PHASENET")
-    print("=" * 50)
-
-    if not model_path:
-        print("Error: --model_path is required for tutorial evaluation")
-        print("Usage: --model_path path/to/model.pt")
-        exit(1)
-
-    # model = sbm.PhaseNet(
-    #     phases="PSN", norm="std", default_args={"blinding": (200, 200)}
-    # )
-
-    # Load PhaseNetConvLSTM for evaluation
-    model = PhaseNetConvLSTM()
-    model.to_preferred_device(verbose=True)
-
-    evaluate_phase_model(model=model, model_path=model_path, data=data)
-
-    print("PhaseNet evaluation completed!")
-
-
 def tutorial_tests(data: BenchmarkDataset, model_path: str = ""):
     """Original PhaseNet tutorial tests (deprecated - use individual tutorial functions)"""
     print("\n" + "=" * 50)
@@ -142,122 +283,20 @@ def tutorial_tests(data: BenchmarkDataset, model_path: str = ""):
         "Warning: This function is deprecated. Consider using individual tutorial functions:"
     )
     print("  - tutorial_test_load_and_generator")
-    print("  - tutorial_train_phasenet")
-    print("  - tutorial_evaluate_phasenet")
+    print("  - train_phase --model_type phasenet")
+    print("  - eval_phase --model_type phasenet")
     print("=" * 50)
 
-    # # Run evaluation only (as in original)
-    # model = PhaseNetConvLSTM()
-    # model.to_preferred_device(verbose=True)
-
-    # evaluate_phase_model(model=model, model_path=model_path, data=data)
-
-
-def train_phasenet_lstm(
-    data: BenchmarkDataset,
-    epochs: int = 50,
-    filter_factor: int = 1,
-    lstm_hidden_size: int = None,
-    lstm_num_layers: int = 1,
-    lstm_bidirectional: bool = True,
-    learning_rate: float = 1e-3,
-    batch_size: int = 256,
-    num_workers: int = 4,
-):
-    """Train PhaseNet-LSTM model with configurable parameters"""
-    print("\n" + "=" * 50)
-    print("TRAINING PHASENET-LSTM")
-    print("=" * 50)
-
-    # Train the model using the abstracted function
-    model, best_loss = train_phasenet_lstm_model(
-        data=data,
-        epochs=epochs,
-        filter_factor=filter_factor,
-        lstm_hidden_size=lstm_hidden_size,
-        lstm_num_layers=lstm_num_layers,
-        lstm_bidirectional=lstm_bidirectional,
-        learning_rate=learning_rate,
-        batch_size=batch_size,
-        num_workers=num_workers,
-    )
-
-    return model, best_loss
-
-
-def train_amag_v2(data: BenchmarkDataset, epochs: int = 50):
-    """Train AMAG_v2 MagnitudeNet model"""
-    print("\n" + "=" * 50)
-    print("TRAINING AMAG_V2 MAGNITUDENET")
-    print("=" * 50)
-
-    # Initialize model with default parameters
-    model = MagnitudeNet(
-        in_channels=3,
-        sampling_rate=100,
-        filter_factor=1,
-        lstm_hidden=128,
-        lstm_layers=2,
-        dropout=0.2,
-    )
-
-    # Train the model
-    history = train_magnitude_net(
-        model_name="magnitudenet_test",
-        model=model,
-        data=data,
-        learning_rate=1e-3,
-        epochs=epochs,
-        batch_size=256,
-        optimizer_name="AdamW",
-        weight_decay=1e-5,
-        scheduler_patience=5,
-        save_every=5,
-        gradient_clip=1.0,
-    )
-
-    return history
+    # Run evaluation only (as in original)
+    if model_path:
+        model = create_phase_model("phasenet")
+        results = evaluate_phase_model_unified(
+            model=model, model_path=model_path, data=data
+        )
+        return results
 
 
 if __name__ == "__main__":
-    """
-    Main script for PhaseNet tutorials and magnitude prediction workflows
-
-    Usage:
-        # Tutorial: Test data loading and generator
-        python src/my_project/main.py --mode tutorial_test_load_and_generator --dataset ETHZ
-
-        # Tutorial: Train PhaseNet model
-        python src/my_project/main.py --mode tutorial_train_phasenet --dataset ETHZ --epochs 5
-
-        # Tutorial: Evaluate PhaseNet model
-        python src/my_project/main.py --mode tutorial_evaluate_phasenet --dataset ETHZ --model_path path/to/model.pt
-
-        # Train PhaseNet-LSTM model
-        python src/my_project/main.py --mode train_phasenetLSTM --dataset ETHZ --epochs 5
-
-        # Train magnitude model (PhaseNetMag)
-        python src/my_project/main.py --mode magnitude_train --dataset ETHZ --epochs 5
-
-        # Train AMAG_v2 magnitude model
-        python src/my_project/main.py --mode train_AMAG_v2 --dataset ETHZ --epochs 5
-
-        # Evaluate magnitude model
-        python src/my_project/main.py --mode magnitude_eval --dataset ETHZ --model_path path/to/model.pt
-
-        # Evaluate magnitude model with plots
-        python src/my_project/main.py --mode magnitude_eval --dataset ETHZ --model_path path/to/model.pt --plot
-
-        # Plot training history (saves PNG, no display)
-        python src/my_project/main.py --mode plot_history --model_path path/to/training_history.pt
-
-        # Plot training history (saves PNG and displays plot)
-        python src/my_project/main.py --mode plot_history --model_path path/to/training_history.pt --plot
-
-        # Original PhaseNet tutorial (deprecated - use individual tutorial functions)
-        python src/my_project/main.py --mode tutorial --model_path path/to/model.pt
-    """
-
     parser = argparse.ArgumentParser(
         description="PhaseNet and Magnitude Prediction Workflows"
     )
@@ -272,24 +311,37 @@ if __name__ == "__main__":
         "--model_path",
         type=str,
         default="",
-        help="Path to model checkpoint file (.pt) or training history file (.pt). Required for tutorial_evaluate_phasenet, magnitude_eval, and plot_history modes",
+        help="Path to model checkpoint file (.pt) or training history file (.pt). Required for eval_phase, eval_mag, tutorial_evaluate_phasenet, and plot_history modes",
     )
     parser.add_argument(
         "--mode",
         type=str,
         default="tutorial_test_load_and_generator",
         choices=[
-            "tutorial",
+            "train_phase",
+            "train_mag",
+            "eval_phase",
+            "eval_mag",
             "tutorial_test_load_and_generator",
             "tutorial_train_phasenet",
             "tutorial_evaluate_phasenet",
-            "train_phasenetLSTM",
-            "train_AMAG_v2",
-            "magnitude_train",
-            "magnitude_eval",
+            "tutorial",
             "plot_history",
         ],
         help="Workflow mode",
+    )
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="phasenet",
+        choices=[
+            "phasenet",
+            "phasenet_lstm",
+            "phasenet_conv_lstm",
+            "phasenet_mag",
+            "amag_v2",
+        ],
+        help="Model type to use",
     )
     parser.add_argument(
         "--epochs", type=int, default=5, help="Number of epochs for training"
@@ -297,7 +349,58 @@ if __name__ == "__main__":
     parser.add_argument(
         "--plot",
         action="store_true",
-        help="Display plots on screen and save PNG files (for magnitude_eval and plot_history modes)",
+        help="Display plots on screen and save PNG files (for eval_mag and plot_history modes)",
+    )
+
+    # Model parameter arguments
+    parser.add_argument(
+        "--filter_factor",
+        type=int,
+        default=1,
+        help="Filter factor for model capacity (all models)",
+    )
+    parser.add_argument(
+        "--lstm_hidden_size",
+        type=int,
+        default=None,
+        help="LSTM hidden size for PhaseNetLSTM (None=auto)",
+    )
+    parser.add_argument(
+        "--lstm_num_layers",
+        type=int,
+        default=1,
+        help="Number of LSTM layers for PhaseNetLSTM",
+    )
+    parser.add_argument(
+        "--lstm_bidirectional",
+        action="store_true",
+        default=True,
+        help="Use bidirectional LSTM for PhaseNetLSTM",
+    )
+    parser.add_argument(
+        "--convlstm_hidden",
+        type=int,
+        default=64,
+        help="ConvLSTM hidden size for PhaseNetConvLSTM",
+    )
+    parser.add_argument(
+        "--norm",
+        type=str,
+        default="std",
+        choices=["std", "peak"],
+        help="Normalization method for PhaseNetMag",
+    )
+    parser.add_argument(
+        "--lstm_hidden", type=int, default=128, help="LSTM hidden size for MagnitudeNet"
+    )
+    parser.add_argument(
+        "--lstm_layers",
+        type=int,
+        default=2,
+        help="Number of LSTM layers for MagnitudeNet",
+    )
+    parser.add_argument(
+        "--dropout", type=float, default=0.2, help="Dropout rate for MagnitudeNet"
     )
 
     args = parser.parse_args()
@@ -321,28 +424,78 @@ if __name__ == "__main__":
         print(f"{data.name} dataset loaded: {len(data)} samples")
 
     # Run appropriate workflow
-    if args.mode == "tutorial":
-        # if not args.model_path:
-        #     print("Error: --model_path is required for tutorial mode")
-        #     exit(1)
+    if args.mode == "train_phase":
+        if args.model_type in ["phasenet", "phasenet_lstm", "phasenet_conv_lstm"]:
+            model_params = extract_model_params(args, args.model_type)
+            train_phase_unified(
+                data, args.model_type, epochs=args.epochs, **model_params
+            )
+        else:
+            print(f"Error: {args.model_type} is not a valid phase model type")
+            print(
+                "Valid phase model types: phasenet, phasenet_lstm, phasenet_conv_lstm"
+            )
+            exit(1)
+    elif args.mode == "train_mag":
+        if args.model_type in ["phasenet_mag", "amag_v2"]:
+            model_params = extract_model_params(args, args.model_type)
+            train_magnitude_unified(
+                data, args.model_type, epochs=args.epochs, **model_params
+            )
+        else:
+            print(f"Error: {args.model_type} is not a valid magnitude model type")
+            print("Valid magnitude model types: phasenet_mag, amag_v2")
+            exit(1)
+    elif args.mode == "eval_phase":
+        if not args.model_path:
+            print("Error: --model_path is required for eval_phase mode")
+            exit(1)
+        if args.model_type in ["phasenet", "phasenet_lstm", "phasenet_conv_lstm"]:
+            model_params = extract_model_params(args, args.model_type)
+            evaluate_phase_unified(
+                data, args.model_type, args.model_path, **model_params
+            )
+        else:
+            print(f"Error: {args.model_type} is not a valid phase model type")
+            print(
+                "Valid phase model types: phasenet, phasenet_lstm, phasenet_conv_lstm"
+            )
+            exit(1)
+    elif args.mode == "eval_mag":
+        if not args.model_path:
+            print("Error: --model_path is required for eval_mag mode")
+            exit(1)
+        if args.model_type in ["phasenet_mag", "amag_v2"]:
+            model_params = extract_model_params(args, args.model_type)
+            evaluate_magnitude_unified(
+                data,
+                args.model_type,
+                args.model_path,
+                plot_examples=args.plot,
+                num_examples=5,
+                batch_size=256,
+                **model_params,
+            )
+        else:
+            print(f"Error: {args.model_type} is not a valid magnitude model type")
+            print("Valid magnitude model types: phasenet_mag, amag_v2")
+            exit(1)
+    elif args.mode == "tutorial":
         tutorial_tests(data, model_path=args.model_path)
     elif args.mode == "tutorial_test_load_and_generator":
         tutorial_test_load_and_generator(data)
     elif args.mode == "tutorial_train_phasenet":
-        tutorial_train_phasenet(data, epochs=args.epochs)
+        # Use the unified training function for tutorial PhaseNet training
+        model_params = extract_model_params(args, "phasenet")
+        train_phase_unified(data, "phasenet", epochs=args.epochs, **model_params)
     elif args.mode == "tutorial_evaluate_phasenet":
-        tutorial_evaluate_phasenet(data, model_path=args.model_path)
-    elif args.mode == "train_phasenetLSTM":
-        train_phasenet_lstm(data, epochs=args.epochs)
-    elif args.mode == "train_AMAG_v2":
-        train_amag_v2(data, epochs=args.epochs)
-    elif args.mode == "magnitude_train":
-        mag_train_phasenet(data, epochs=args.epochs)
-    elif args.mode == "magnitude_eval":
         if not args.model_path:
-            print("Error: --model_path is required for magnitude_eval mode")
+            print("Error: --model_path is required for tutorial_evaluate_phasenet mode")
+            print("Usage: --model_path path/to/model.pt")
             exit(1)
-        magnitude_evaluate(data, model_path=args.model_path, plot_examples=args.plot)
+        # Use the unified evaluation function for tutorial PhaseNet evaluation
+        model_params = extract_model_params(args, "phasenet")
+        evaluate_phase_unified(data, "phasenet", args.model_path, **model_params)
     elif args.mode == "plot_history":
         if not args.model_path:
             print("Error: --model_path is required for plot_history mode")
