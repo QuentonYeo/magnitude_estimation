@@ -17,19 +17,38 @@
 
 3. If a previous version of custom seisbench persists, run `uv lock --upgrade` then `uv sync`
 
-4. If the system still does not install the cuda version correctly, copy the contents of `pyproject-cuda.txt` into the pyproject and try again with `uv sync`.
+4. If the system still does not install the cuda version correctly, copy the contents of `py
+project-cuda.txt` into the pyproject and try again with `uv sync`.
 
 ### Basic Commands
 
 #### Seisbench phasenet tutorial
 
-Depending on the code uncommented, this will:
+The tutorial has been modularized into three separate functions that can be run independently:
 
-- test data downloading from the seisbench API
-  - by default seisbench downloads the waveforms and metadata to `~/.seisbench`
-- test generator initialisation from seisbench
-- train a phasenet model on the provided dataset
-- evaluates the trained model from a path on a given dataset
+**Test data loading and generator**
+
+- Tests data downloading from the seisbench API
+- Tests generator initialization from seisbench
+- By default seisbench downloads the waveforms and metadata to `~/.seisbench`
+
+`uv run src/my_project/main.py --mode tutorial_test_load_and_generator --dataset ETHZ`
+
+**Train PhaseNet model**
+
+- Trains a standard PhaseNet model on the provided dataset
+
+`uv run src/my_project/main.py --mode tutorial_train_phasenet --dataset ETHZ --epochs 5`
+
+**Evaluate PhaseNet model**
+
+- Evaluates a trained PhaseNet model from a given path on a dataset
+
+`uv run src/my_project/main.py --mode tutorial_evaluate_phasenet --dataset ETHZ --model_path path/to/model.pt`
+
+**Legacy tutorial mode (deprecated)**
+
+- Runs the original tutorial (evaluation only)
 
 `uv run src/my_project/main.py --mode tutorial --model_path path/to/model.pt`
 
@@ -39,11 +58,11 @@ Depending on the code uncommented, this will:
 `uv run src/my_project/main.py --mode magnitude_train --dataset ETHZ --epochs 5`
 
 **Evaluate**
-`uv run src/my_project/main.py --mode magnitude_eval --dataset ETHZ --model_path path/to/model.pt`
+`uv run src/my_project/main.py --mode magnitude_eval --dataset ETHZ --model_path path/to/model.pt --plot`
 
 **Plot model history**
-This one is more general and I hope to use it for other models later down the line
-`uv run src/my_project/main.py --mode plot_history --model_path path/to/training_history.pt`
+This one is more general it plots the error and loss over training. Use the `--plot` parameter to show the plot. Otherwise, it will just save the png
+`uv run src/my_project/main.py --mode plot_history --model_path path/to/training_history.pt --plot`
 
 ## Hyperparameter Tuning
 

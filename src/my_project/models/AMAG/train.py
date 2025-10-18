@@ -1,8 +1,15 @@
 import os
+import numpy as np
 from datetime import datetime
+
 import torch
 import torch.nn as nn
+
 import seisbench.data as sbd
+
+from my_project.utils import utils
+from my_project.loaders import data_loader as dl
+from my_project.models.AMAG.model import AMAG
 
 
 def train_model(
@@ -71,7 +78,7 @@ def train_model(
         for batch_id, batch in enumerate(dataloader):
             # Get input and target
             x = batch["X"].to(model.device)
-            y_true = batch["magnitude"].to(model.device)  # Target magnitudes
+            y_true = batch["magnitude"].to(model.device)  # Already has +1 from labeller
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
@@ -106,7 +113,9 @@ def train_model(
         with torch.no_grad():
             for batch in dataloader:
                 x = batch["X"].to(model.device)
-                y_true = batch["magnitude"].to(model.device)
+                y_true = batch["magnitude"].to(
+                    model.device
+                )  # Already has +1 from labeller
 
                 # Forward pass
                 x_preproc = model.annotate_batch_pre(x, {})
@@ -145,10 +154,10 @@ def train_model(
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             epochs_without_improvement = 0
-            # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # best_model_path = os.path.join(save_dir, f"model_best_{timestamp}.pt")
-            # torch.save(model.state_dict(), best_model_path)
-            # print(f"New best model saved: {best_model_path}")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            best_model_path = os.path.join(save_dir, f"model_best_{timestamp}.pt")
+            torch.save(model.state_dict(), best_model_path)
+            print(f"New best model saved: {best_model_path}")
         else:
             epochs_without_improvement += 1
             print(f"No improvement for {epochs_without_improvement} epoch(s)")
@@ -191,9 +200,6 @@ def train_model(
 
 # Example usage
 if __name__ == "__main__":
-    from my_project.loaders import data_loader as dl
-    from my_project.models.AMAG.model import AMAG
-
     # Initialize model
     model = AMAG(
         in_channels=3,
@@ -215,16 +221,22 @@ if __name__ == "__main__":
     # Load your dataset
     data = sbd.ETHZ(sampling_rate=100)
 
+    train_generator, _, _ = dl.load_dataset(data, model, "train")
+
+    utils.plot_samples(train_generator, single=True)
+
+    # Load your dataset
+    data = sbd.ETHZ(sampling_rate=100)
+
     # Train the model
     history = train_model(
-        model_name="AMAG_test",
+        model_name="your_model_v1",
         model=model,
         data=data,
-        learning_rate=1e-5,
+        learning_rate=1e-3,
         epochs=50,
         batch_size=256,
         optimizer_name="Adam",
         weight_decay=1e-5,
-        scheduler_patience=5,
         save_every=5,
     )

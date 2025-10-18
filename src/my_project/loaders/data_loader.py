@@ -8,13 +8,20 @@ import seisbench.generate as sbg
 import seisbench.models as sbm
 from seisbench.util import worker_seeding
 
-from my_project.utils.utils import plot_magnitude_distribution, dump_metadata_to_csv
+from my_project.utils.utils import (
+    plot_magnitude_distribution,
+    dump_metadata_to_csv,
+    plot_samples,
+)
 from my_project.loaders.magnitude_labellers import (
-    MagnitudeLabellerPhaseNet,
+    MagnitudeLabeller,
     MagnitudeLabellerAMAG,
 )
 from my_project.models.phasenet_mag.model import PhaseNetMag
+from my_project.models.phasenetLSTM.model import PhaseNetLSTM
+from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG.model import AMAG
+from my_project.models.AMAG_v2.model import MagnitudeNet
 
 # Only training for S and P picks, map the labels
 phase_dict = {
@@ -36,93 +43,71 @@ phase_dict = {
 }
 
 
-def get_magnitude_augmentation(windowlen=3001):
-    """Define training and validation generator for magnitude regression only:
+def get_random_window(windowlen) -> list:
+    augmentations = [
+        sbg.WindowAroundSample(
+            list(phase_dict.keys()),
+            samples_before=windowlen,
+            windowlen=windowlen * 2,
+            selection="random",
+            strategy="variable",
+        ),
+        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
+        sbg.ChangeDtype(np.float32),
+    ]
 
-    - Window around FIRST P pick with controlled randomization
-    - Random window of specified length (default 3001 for PhaseNet, 600 for AMAG)
-    - Change datatype to float32 for pytorch
-    - Magnitude labeller only (no phase labels)
+    return augmentations
+
+
+def get_magnitude_augmentation(windowlen=3001) -> list:
+    """Define training and validation augmentation for magnitude regression only:
 
     Args:
         windowlen (int): Length of the random window. Default is 3001 for PhaseNet.
                         Use 600 for AMAG model.
     """
-    # P-phase columns only (prioritize first P pick)
-    p_phase_keys = [key for key in phase_dict.keys() if phase_dict[key] == "P"]
 
-    augmentations = [
-        sbg.WindowAroundSample(
-            p_phase_keys,  # Only P picks
-            samples_before=int(windowlen * 0.5),  # 30% before pick, 70% after
-            windowlen=windowlen * 2,  # Larger initial window for flexibility
-            selection="first",  # Always use first available P pick
-            strategy="pad",  # Pad if needed to maintain consistent length
-        ),
-        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
-        sbg.ChangeDtype(np.float32),
-        MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
-    ]
+    augmentations = get_random_window(windowlen=windowlen)
+    augmentations.append(MagnitudeLabeller(phase_dict=phase_dict))
+
+    return augmentations
+
+
+def get_phase_augmentation(windowlen=3001):
+    """Define training and validation augmentation for magnitude regression only:
+
+    Returns:
+        windowlen (int): Length of the random window. Default is 3001 for PhaseNet.
+                        Use 600 for AMAG model.
+    """
+    augmentations = get_random_window(windowlen=windowlen)
+    augmentations.append(
+        sbg.ProbabilisticLabeller(
+            label_columns=phase_dict, model_labels=["P", "S", "N"], sigma=30, dim=0
+        )
+    )
+
     return augmentations
 
 
 def get_magnitude_and_phase_augmentation(windowlen=3001):
-    """Define training and validation generator with both phase and magnitude labels:
+    """Define training and validation augmentation with both phase and magnitude labels:
 
-    - Window around FIRST P pick with controlled randomization
     - Random window of specified length
-    - Change datatype to float32 for pytorch
     - Both probabilistic phase labels AND magnitude labels
 
     Args:
         windowlen (int): Length of the random window. Default is 3001 for PhaseNet, 600 for AMAG.
     """
-    # P-phase columns only (prioritize first P pick)
-    p_phase_keys = [key for key in phase_dict.keys() if phase_dict[key] == "P"]
-
-    augmentations = [
-        sbg.WindowAroundSample(
-            p_phase_keys,  # Only P picks
-            samples_before=int(windowlen * 0.5),
-            windowlen=windowlen * 2,  # Larger initial window for flexibility
-            selection="first",  # Always use first available P pick
-            strategy="pad",  # Pad if needed
-        ),
-        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
-        sbg.ChangeDtype(np.float32),
-        sbg.ProbabilisticLabeller(
-            label_columns=phase_dict, model_labels=["P", "S", "N"], sigma=30, dim=0
-        ),
-        MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
-    ]
-    return augmentations
-
-
-def get_augmentation(model: WaveformModel):
-    """Define training and validation generator with the following augmentations:
-
-    - Window around FIRST P pick with controlled randomization
-    - Random window of 3001 samples (Phasenet input length)
-    - Change datatype to float32 for pytorch
-    - Probablistic phase label
-    """
-    # P-phase columns only (prioritize first P pick)
-    p_phase_keys = [key for key in phase_dict.keys() if phase_dict[key] == "P"]
-
-    augmentations = [
-        sbg.WindowAroundSample(
-            p_phase_keys,  # Only P picks
-            samples_before=int(3001 * 0.5),  # 30% before pick, 70% after
-            windowlen=3001 * 2,  # Larger initial window for flexibility
-            selection="first",  # Always use first available P pick
-            strategy="pad",  # Pad if needed
-        ),
-        sbg.RandomWindow(windowlen=3001, strategy="pad"),
-        sbg.ChangeDtype(np.float32),
-        sbg.ProbabilisticLabeller(
-            label_columns=phase_dict, model_labels=model.labels, sigma=30, dim=0
-        ),
-    ]
+    augmentations = get_random_window(windowlen=windowlen)
+    augmentations.extend(
+        [
+            sbg.ProbabilisticLabeller(
+                label_columns=phase_dict, model_labels=["P", "S", "N"], sigma=30, dim=0
+            ),
+            MagnitudeLabeller(phase_dict=phase_dict),
+        ]
+    )
     return augmentations
 
 
@@ -157,16 +142,17 @@ def get_amag_augmentation(windowlen=600):
         sbg.WindowAroundSample(
             p_phase_keys,
             samples_before=int(windowlen * 0.5),  # Center around P arrival
-            windowlen=windowlen * 2,  # Larger initial window for flexibility
+            windowlen=windowlen * 1.5,  # Larger initial window for flexibility
             selection="first",  # Always use first available P pick
             strategy="pad",  # Pad if needed
         ),
         # 3. Random window to get exactly 600 samples
-        sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
+        # sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
         # 4. Change dtype to float32 for PyTorch
         sbg.ChangeDtype(np.float32),
         # 5. AMAG magnitude labeller with equation (11): mag + 1
-        MagnitudeLabellerAMAG(phase_dict=phase_dict, debug=False),
+        # MagnitudeLabellerAMAG(phase_dict=phase_dict, debug=False),
+        MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
         sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=30, dim=0),
     ]
 
@@ -194,15 +180,12 @@ def load_dataset(
 
     ds_generator = sbg.GenericGenerator(dataset)
 
-    if isinstance(model, PhaseNetMag):
-        ds_generator.add_augmentations(get_magnitude_augmentation())
+    if isinstance(model, (PhaseNetMag, MagnitudeNet)):
+        ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3000))
     elif isinstance(model, AMAG):
         ds_generator.add_augmentations(get_amag_augmentation())
-    elif isinstance(model, (sbm.PhaseNet)):
-        ds_generator.add_augmentations(get_augmentation(model))
-        ds_generator.add_augmentations(
-            [MagnitudeLabellerPhaseNet(phase_dict=phase_dict)]
-        )
+    elif isinstance(model, (sbm.PhaseNet, PhaseNetLSTM, PhaseNetConvLSTM)):
+        ds_generator.add_augmentations(get_phase_augmentation())
     else:
         print("load dataset failed")
         return
@@ -212,9 +195,7 @@ def load_dataset(
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        prefetch_factor=2,
-        # worker_init_fn=worker_seeding,
-        pin_memory=True,
+        worker_init_fn=worker_seeding,
     )
 
     return ds_generator, loader, data
@@ -230,42 +211,12 @@ if __name__ == "__main__":
     model = sbm.PhaseNet(
         phases="PSN", norm="std", default_args={"blinding": (200, 200)}
     )
+    # model = PhaseNetMag(in_channels=3, sampling_rate=100, norm="std", filter_factor=1)
     model.to_preferred_device(verbose=True)
 
     train_generator, _, data = load_dataset(data, model, "train")
 
-    # Example training input
-    sample = train_generator[np.random.randint(len(train_generator))]
-
-    print(sample)
-
-    fig = plt.figure(figsize=(15, 12))
-    axs = fig.subplots(
-        3, 1, sharex=True, gridspec_kw={"hspace": 0.2, "height_ratios": [3, 1, 1]}
-    )
-    # Plot Z, N, E waveforms
-    channel_names = ["Z", "N", "E"]
-    for i in range(sample["X"].shape[0]):
-        axs[0].plot(sample["X"][i], label=channel_names[i])
-    axs[0].set_ylabel("Waveform")
-    axs[0].legend()
-
-    # Plot P, S, Noise phase labels
-    phase_names = ["P", "S", "Noise"]
-    colors = ["tab:blue", "tab:green", "tab:orange"]
-    for i in range(sample["y"].shape[0]):
-        axs[1].plot(sample["y"][i], label=phase_names[i], color=colors[i])
-    axs[1].set_ylabel("Phase Label")
-    axs[1].legend()
-
-    # Plot magnitude label
-    if "magnitude" in sample:
-        mag_data = sample["magnitude"]
-        axs[2].plot(mag_data, color="tab:orange")
-        axs[2].set_ylabel("Magnitude Label")
-    else:
-        axs[2].text(0.5, 0.5, "No magnitude label", ha="center", va="center")
-    axs[2].set_xlabel("Sample Index")
+    plot_samples(train_generator)
 
     plot_magnitude_distribution(data)
     # dump_metadata_to_csv(data, "GEOFON_metadata.csv")

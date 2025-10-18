@@ -19,6 +19,7 @@ def evaluate_phasenet_mag(
     batch_size: int = 256,
     plot_examples: bool = True,
     num_examples: int = 5,
+    output_dir: str = None,
 ):
     """
     Evaluate PhaseNetMag model for magnitude regression.
@@ -30,6 +31,7 @@ def evaluate_phasenet_mag(
         batch_size: Batch size for evaluation
         plot_examples: Whether to plot example predictions
         num_examples: Number of examples to plot
+        output_dir: Directory to save plots (if None, uses model directory)
     """
     print(f"Evaluating PhaseNetMag from {model_path}")
 
@@ -117,14 +119,26 @@ def evaluate_phasenet_mag(
     print(f"Number of unique magnitudes: {len(unique_mags)}")
 
     if plot_examples:
+        if output_dir is None:
+            output_dir = os.path.dirname(model_path)
+
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
         plot_prediction_examples(
             all_waveforms,
             all_targets,
             all_predictions,
             num_examples=min(num_examples, len(all_waveforms)),
+            output_dir=output_dir,
         )
-        plot_magnitude_distribution_comparison(y_true_clean, y_pred_clean)
-        plot_prediction_scatter(y_true_clean, y_pred_clean)
+        plot_magnitude_distribution_comparison(
+            y_true_clean, y_pred_clean, output_dir=output_dir
+        )
+        plot_prediction_scatter(y_true_clean, y_pred_clean, output_dir=output_dir)
+
+        # Show all plots at once
+        plt.show()
 
     return {
         "mse": mse,
@@ -137,7 +151,9 @@ def evaluate_phasenet_mag(
     }
 
 
-def plot_prediction_examples(waveforms, targets, predictions, num_examples=5):
+def plot_prediction_examples(
+    waveforms, targets, predictions, num_examples=5, output_dir=None
+):
     """Plot example waveforms with true and predicted magnitude labels."""
     fig, axes = plt.subplots(num_examples, 1, figsize=(15, 3 * num_examples))
     if num_examples == 1:
@@ -182,10 +198,15 @@ def plot_prediction_examples(waveforms, targets, predictions, num_examples=5):
             ax.set_xlabel("Sample")
 
     plt.tight_layout()
-    # plt.show()
+
+    # Save the figure if output directory is provided
+    if output_dir is not None:
+        output_path = os.path.join(output_dir, "prediction_examples.png")
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        print(f"Saved prediction examples plot to: {output_path}")
 
 
-def plot_magnitude_distribution_comparison(y_true, y_pred):
+def plot_magnitude_distribution_comparison(y_true, y_pred, output_dir=None):
     """Plot histogram comparison of true vs predicted magnitudes."""
     # Only consider non-zero values
     y_true_nonzero = y_true[y_true > 0]
@@ -222,10 +243,15 @@ def plot_magnitude_distribution_comparison(y_true, y_pred):
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.show()
+
+    # Save the figure if output directory is provided
+    if output_dir is not None:
+        output_path = os.path.join(output_dir, "magnitude_distribution_comparison.png")
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        print(f"Saved magnitude distribution plot to: {output_path}")
 
 
-def plot_prediction_scatter(y_true, y_pred):
+def plot_prediction_scatter(y_true, y_pred, output_dir=None):
     """Plot scatter plot of true vs predicted magnitudes."""
     # Only consider non-zero values
     mask = y_true > 0
@@ -252,7 +278,12 @@ def plot_prediction_scatter(y_true, y_pred):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.axis("equal")
-    plt.show()
+
+    # Save the figure if output directory is provided
+    if output_dir is not None:
+        output_path = os.path.join(output_dir, "prediction_scatter.png")
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        print(f"Saved prediction scatter plot to: {output_path}")
 
 
 def main():
@@ -268,7 +299,7 @@ def main():
     parser.add_argument(
         "--batch_size", type=int, default=256, help="Batch size for evaluation"
     )
-    parser.add_argument("--no_plot", action="store_true", help="Skip plotting examples")
+    parser.add_argument("--plot", action="store_true", help="Generate and save plots")
     parser.add_argument(
         "--num_examples", type=int, default=5, help="Number of examples to plot"
     )
@@ -295,7 +326,7 @@ def main():
         model_path=args.model_path,
         data=data,
         batch_size=args.batch_size,
-        plot_examples=not args.no_plot,
+        plot_examples=args.plot,
         num_examples=args.num_examples,
     )
 

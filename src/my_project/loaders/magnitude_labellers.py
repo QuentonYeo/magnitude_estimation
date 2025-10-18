@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class MagnitudeLabellerPhaseNet(SupervisedLabeller):
+class MagnitudeLabeller(SupervisedLabeller):
     """
     Labeller for magnitude regression: sets all values to zero before first P pick,
     and to the event's source magnitude after the first P pick.

@@ -68,12 +68,13 @@ def plot_magnitude_distribution(data: BenchmarkDataset) -> None:
     plt.show()
 
 
-def plot_training_history(history_path: str):
+def plot_training_history(history_path: str, show_plot: bool = False):
     """
     Load and visualize training history from PhaseNetMag training.
 
     Args:
         history_path: Path to the training_history_*.pt file
+        show_plot: Whether to display the plot (always saves PNG)
     """
     import torch
     import matplotlib.pyplot as plt
@@ -130,7 +131,22 @@ def plot_training_history(history_path: str):
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.show()
+
+    # Always save plot as PNG
+    import os
+
+    base_name = os.path.splitext(os.path.basename(history_path))[0]
+    plot_filename = f"{base_name}_plot.png"
+    plot_path = os.path.join(os.path.dirname(history_path), plot_filename)
+
+    plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+    print(f"Plot saved to: {plot_path}")
+
+    # Only show plot if requested
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()  # Close the figure to free memory
 
     # Print training analysis
     print("\n" + "=" * 50)
@@ -173,8 +189,7 @@ def plot_samples(generator: GenericGenerator, single: bool = False):
             random_index = np.random.randint(len(generator))
             sample = generator[random_index]
 
-            print(f"\nSample index: {random_index}")
-            print(sample)
+            print(f"Sample index: {random_index}")
 
             fig = plt.figure(figsize=(15, 12))
             axs = fig.subplots(

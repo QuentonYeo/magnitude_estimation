@@ -12,23 +12,20 @@ from seisbench.models.base import WaveformModel
 
 class CustomAttention(nn.Module):
     """
-    Custom attention mechanism following equation (5) from the paper:
-    a^{t,t'} = softmax(sig(W^a * (tanh(W^t * h^t + W^{t'} * h^{t'} + b^h)) + b^a))
+    Custom attention mechanism following the Keras implementation with ReLU activation.
 
-    Output O^t is computed as weighted sum of all hidden states.
+    The Keras code uses: SeqSelfAttention(attention_activation='relu')
+    This is simpler than the original equation (5) - it just uses scaled dot-product attention
+    with ReLU activation instead of sigmoid + softmax.
     """
 
     def __init__(self, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
 
-        # Weight matrices and biases
-        self.W_t = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.W_t_prime = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.b_h = nn.Parameter(torch.zeros(hidden_size))
-
-        self.W_a = nn.Linear(hidden_size, 1, bias=False)
-        self.b_a = nn.Parameter(torch.zeros(1))
+        # Single linear layer for computing attention scores
+        # This mimics the Keras SeqSelfAttention behavior
+        self.attention = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, h):
         """
@@ -37,38 +34,27 @@ class CustomAttention(nn.Module):
 
         Returns:
             output: Attended output, shape (batch, seq_len, hidden_size)
-            attention_weights: Attention matrix, shape (batch, seq_len, seq_len)
+            attention_weights: Attention weights, shape (batch, seq_len, seq_len)
         """
         batch_size, seq_len, hidden_size = h.shape
 
-        # Compute attention scores for all pairs (t, t')
-        # h_t: (batch, seq_len, 1, hidden_size)
-        # h_t_prime: (batch, 1, seq_len, hidden_size)
-        h_t = h.unsqueeze(2)  # (batch, seq_len, 1, hidden_size)
-        h_t_prime = h.unsqueeze(1)  # (batch, 1, seq_len, hidden_size)
+        # Compute attention scores using scaled dot-product
+        # Query = h, Key = h, Value = h (self-attention)
+        q = self.attention(h)  # (batch, seq_len, hidden_size)
+        k = h  # (batch, seq_len, hidden_size)
+        v = h  # (batch, seq_len, hidden_size)
 
-        # Transform hidden states
-        # W_t * h^t + W^{t'} * h^{t'} + b^h
-        transformed = (
-            self.W_t(h_t) + self.W_t_prime(h_t_prime) + self.b_h
-        )  # (batch, seq_len, seq_len, hidden_size)
+        # Scaled dot-product: Q @ K^T / sqrt(d)
+        scores = torch.matmul(q, k.transpose(-2, -1)) / np.sqrt(hidden_size)
 
-        # Apply tanh
-        tanh_out = torch.tanh(transformed)
+        # Apply ReLU activation (as per Keras code)
+        scores = F.relu(scores)
 
-        # Apply W^a and sigmoid
-        # W^a * tanh(...) + b^a
-        scores = self.W_a(tanh_out).squeeze(-1) + self.b_a
-        scores = torch.sigmoid(scores)  # (batch, seq_len, seq_len)
+        # Normalize with softmax
+        attention_weights = F.softmax(scores, dim=-1)  # (batch, seq_len, seq_len)
 
-        # Apply softmax to get attention weights
-        # For each timestep t, softmax over all t'
-        attention_weights = F.softmax(scores, dim=2)  # (batch, seq_len, seq_len)
-
-        # Compute weighted sum: O^t = sum_{t'=1}^{n} a^{t,t'} * h^{t'}
-        # attention_weights: (batch, seq_len_t, seq_len_t')
-        # h: (batch, seq_len_t', hidden_size)
-        output = torch.bmm(attention_weights, h)  # (batch, seq_len, hidden_size)
+        # Apply attention to values
+        output = torch.matmul(attention_weights, v)  # (batch, seq_len, hidden_size)
 
         return output, attention_weights
 
@@ -215,7 +201,7 @@ class AMAG(WaveformModel):
             nn.Conv1d(
                 in_channels, out_channels, self.kernel_size, stride=1, padding="same"
             ),
-            nn.BatchNorm1d(out_channels),
+            nn.BatchNorm1d(out_channels, eps=1e-3),  # Paper uses eps=1e-3
             nn.LeakyReLU(negative_slope=self.leaky_relu_slope),
         )
 
@@ -232,30 +218,23 @@ class AMAG(WaveformModel):
                 stride=2,
                 padding=self.kernel_size // 2,
             ),
-            nn.BatchNorm1d(out_channels),
+            nn.BatchNorm1d(out_channels, eps=1e-3),  # Paper uses eps=1e-3
             nn.LeakyReLU(negative_slope=self.leaky_relu_slope),
         )
 
     def _make_CB3(self, in_channels, out_channels):
         """
-        CB3 block: Upsampling2D -> Conv1d(stride=1) -> LeakyReLU
-        Upsampling with size=(2,1) means 2x upsampling in time dimension
+        CB3 block: Upsampling2D -> Conv1d(stride=1) -> BN -> LeakyReLU
+        Keras: UpSampling2D(size=(2,1)) then Conv2D
+        PyTorch: Upsample then Conv1d
         """
         return nn.Sequential(
             nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv1d(
                 in_channels, out_channels, self.kernel_size, stride=1, padding="same"
             ),
+            nn.BatchNorm1d(out_channels, eps=1e-3),
             nn.LeakyReLU(negative_slope=self.leaky_relu_slope),
-        )
-
-    def _make_CCut(self, in_channels, out_channels):
-        """
-        CCut (Crop and Concatenate) block: Conv1d after concatenation
-        Takes concatenated skip connection and upsampled features
-        """
-        return nn.Conv1d(
-            in_channels, out_channels, self.kernel_size, stride=1, padding="same"
         )
 
     def forward(self, x, logits=False):
@@ -286,7 +265,8 @@ class AMAG(WaveformModel):
         x = self.bottleneck(x)
 
         # LSTM processing
-        # Reshape from (batch, channels, sequence) to (batch, sequence, features)
+        # Keras: Reshape to (batch, sequence*1, channels) for LSTM
+        # PyTorch: (batch, channels, sequence) -> (batch, sequence, channels)
         batch_size = x.shape[0]
         x = x.transpose(1, 2)  # (batch, sequence, channels)
 
@@ -294,41 +274,37 @@ class AMAG(WaveformModel):
         # Output shape: (batch, sequence, hidden_size)
         x, (h_n, c_n) = self.lstm(x)
 
-        # x is now (batch, 600/(2^(d-1)), 8*2^(d-1))
-
         # Attention mechanism
         x, attention_weights = self.attention(x)
         # x is still (batch, 600/(2^(d-1)), 8*2^(d-1))
 
         # Reshape back to (batch, channels, sequence) for decoder
+        # Keras: Reshape back to (batch, 1, sequence, channels)
+        # PyTorch: (batch, sequence, channels) -> (batch, channels, sequence)
         x = x.transpose(1, 2)  # (batch, 8*2^(d-1), 600/(2^(d-1)))
 
-        # Decoder with skip connections
-        for i, (cb3, ccut) in enumerate(self.decoder):
-            # Upsample
-            x = cb3(x)
+        # Decoder WITHOUT skip connections (like Keras crop_and_cut which crops upsampled to match skip)
+        # The Keras code crops net2 (upsampled) to match net1 (skip), then just uses net2
+        # This means it's NOT actually concatenating - just cropping!
+        for i, cb3 in enumerate(self.decoder):
+            # Upsample / decode stage
+            if isinstance(cb3, nn.ModuleList):
+                for layer in cb3:
+                    x = layer(x)
+            else:
+                x = cb3(x)
 
-            # Get corresponding encoder output
-            # encoder_outputs: [initial(8), layer1(8), layer2(16), layer3(32)]
-            # decoder i=0 needs layer3(32), i=1 needs layer2(16), i=2 needs layer1(8)
+            # Get corresponding encoder output for potential cropping
             skip_idx = len(encoder_outputs) - 1 - i
             skip = encoder_outputs[skip_idx]
 
-            # Crop skip connection to match upsampled size if needed
+            # Crop upsampled feature to match skip dimensions (like Keras crop_and_cut)
+            # But in Keras, after cropping they just use the cropped net2, not concatenation!
             if skip.shape[-1] != x.shape[-1]:
-                diff = skip.shape[-1] - x.shape[-1]
+                # Crop x to match skip's size
+                diff = x.shape[-1] - skip.shape[-1]
                 if diff > 0:
-                    skip = skip[:, :, diff // 2 : diff // 2 + x.shape[-1]]
-                else:
-                    # x is larger, crop x instead
-                    diff = abs(diff)
                     x = x[:, :, diff // 2 : diff // 2 + skip.shape[-1]]
-
-            # Concatenate skip connection (both should have same channel count now)
-            x = torch.cat([skip, x], dim=1)
-
-            # Apply CCut (convolution after concatenation)
-            x = ccut(x)
 
         # Final output convolution
         x = self.output_conv(x)  # (batch, 1, 600)

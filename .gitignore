@@ -209,6 +209,7 @@ __marimo__/
 # Large Files
 *.pt
 *.csv
+*.png
 
 # Lock files
 uv.lock
