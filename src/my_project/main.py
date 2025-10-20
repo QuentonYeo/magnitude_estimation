@@ -16,7 +16,7 @@ from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
 
 # Import unified training and inference functions
-from my_project.unified_training import (
+from my_project.utils.unified_training import (
     train_phase_model,
     evaluate_phase_model_unified,
     train_magnitude_model,
@@ -33,6 +33,8 @@ def extract_model_params(args, model_type):
     # Common parameters
     if hasattr(args, "filter_factor") and args.filter_factor != 1:
         params["filter_factor"] = args.filter_factor
+    if hasattr(args, "early_stopping_patience") and args.early_stopping_patience != 10:
+        params["early_stopping_patience"] = args.early_stopping_patience
 
     # PhaseNetLSTM specific parameters
     if model_type == "phasenet_lstm":
@@ -401,6 +403,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--dropout", type=float, default=0.2, help="Dropout rate for MagnitudeNet"
+    )
+    parser.add_argument(
+        "--early_stopping_patience",
+        type=int,
+        default=10,
+        help="Stop training if no improvement for N epochs",
     )
 
     args = parser.parse_args()

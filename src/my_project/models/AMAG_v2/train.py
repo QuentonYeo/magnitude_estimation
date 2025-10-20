@@ -24,6 +24,7 @@ def train_magnitude_net(
     scheduler_factor: float = 0.5,
     save_every: int = 5,
     gradient_clip: Optional[float] = 1.0,
+    early_stopping_patience: int = 10,
 ):
     """
     Train MagnitudeNet model for magnitude regression.
@@ -203,8 +204,9 @@ def train_magnitude_net(
 
         return avg_loss, avg_mae
 
-    # Create save directory
-    save_dir = f"trained_weights/{model_name}"
+    # Create save directory with timestamp
+    script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = f"src/trained_weights/{model_name}_{script_datetime}"
     os.makedirs(save_dir, exist_ok=True)
     print(f"\nSaving models to: {save_dir}\n")
 
@@ -215,6 +217,7 @@ def train_magnitude_net(
     train_maes = []
     val_maes = []
     learning_rates = []
+    epochs_without_improvement = 0
 
     for epoch in range(epochs):
         print(f"\n{'='*50}")
@@ -241,9 +244,10 @@ def train_magnitude_net(
         # Learning rate scheduling
         scheduler.step(val_loss)
 
-        # Save best model
+        # Check for improvement and early stopping
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            epochs_without_improvement = 0
             best_model_path = os.path.join(save_dir, f"model_best.pt")
             torch.save(
                 {
@@ -252,17 +256,36 @@ def train_magnitude_net(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": val_loss,
                     "val_mae": val_mae,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "optimizer": optimizer_name,
+                        "weight_decay": weight_decay,
+                        "scheduler_patience": scheduler_patience,
+                        "gradient_clip": gradient_clip,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
                 },
                 best_model_path,
             )
             print(f"\n✓ New best model saved! Val Loss: {val_loss:.6f}")
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs")
+
+        # Early stopping check
+        if epochs_without_improvement >= early_stopping_patience:
+            print(
+                f"\nEarly stopping triggered after {early_stopping_patience} epochs without improvement"
+            )
+            print(f"Best validation loss: {best_val_loss:.6f}")
+            break
 
         # Save periodic checkpoint
         if (epoch + 1) % save_every == 0:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            checkpoint_path = os.path.join(
-                save_dir, f"model_epoch_{epoch+1}_{timestamp}.pt"
-            )
+            checkpoint_path = os.path.join(save_dir, f"model_epoch_{epoch+1}.pt")
             torch.save(
                 {
                     "epoch": epoch + 1,
@@ -270,21 +293,42 @@ def train_magnitude_net(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "train_loss": train_loss,
                     "val_loss": val_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "optimizer": optimizer_name,
+                        "weight_decay": weight_decay,
+                        "scheduler_patience": scheduler_patience,
+                        "gradient_clip": gradient_clip,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
                 },
                 checkpoint_path,
             )
             print(f"Checkpoint saved: {checkpoint_path}")
 
     # Save final model
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    final_model_path = os.path.join(save_dir, f"model_final_{timestamp}.pt")
+    final_model_path = os.path.join(save_dir, "model_final.pt")
     torch.save(
         {
-            "epoch": epochs,
+            "epoch": epoch + 1,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "train_loss": train_losses[-1],
             "val_loss": val_losses[-1],
+            "config": {
+                "model_name": model_name,
+                "learning_rate": learning_rate,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "optimizer": optimizer_name,
+                "weight_decay": weight_decay,
+                "scheduler_patience": scheduler_patience,
+                "gradient_clip": gradient_clip,
+                "early_stopping_patience": early_stopping_patience,
+            },
         },
         final_model_path,
     )
@@ -307,9 +351,10 @@ def train_magnitude_net(
             "weight_decay": weight_decay,
             "scheduler_patience": scheduler_patience,
             "gradient_clip": gradient_clip,
+            "early_stopping_patience": early_stopping_patience,
         },
     }
-    history_path = os.path.join(save_dir, f"training_history_{timestamp}.pt")
+    history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
     torch.save(history, history_path)
     print(f"Training history saved: {history_path}")
 

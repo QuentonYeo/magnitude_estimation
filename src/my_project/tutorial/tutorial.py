@@ -125,6 +125,7 @@ def train_phasenet(
     data: BenchmarkDataset,
     learning_rate=1e-2,
     epochs=5,
+    early_stopping_patience=10,
 ):
     train_generator, train_loader, _ = dl.load_dataset(data, model, "train")
     dev_generator, dev_loader, _ = dl.load_dataset(data, model, "dev")
@@ -181,25 +182,127 @@ def train_phasenet(
 
         test_loss /= num_batches
         print(f"Test avg loss: {test_loss:>8f} \n")
+        return test_loss
 
-    # Train model with checkpoint each 5 epochs
-    save_dir = f"src/trained_weights/{model_name}"
+    # Create save directory with timestamp
+    script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = f"src/trained_weights/{model_name}_{script_datetime}"
     os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving models to: {save_dir}")
+
+    # Training loop with early stopping
+    best_val_loss = float("inf")
+    train_losses = []
+    val_losses = []
+    epochs_without_improvement = 0
 
     for t in range(epochs):
-        print(f"Epoch {t + 1}\n-------------------------------")
-        train_loop(train_loader)
-        test_loop(dev_loader)
-        if (t + 1) % 5 == 0:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_path = os.path.join(save_dir, f"model_epoch_{t+1}_{timestamp}.pt")
-            torch.save(model.state_dict(), save_path)
-            print(f"Model saved to {save_path}")
+        print(f"Epoch {t + 1}/{epochs}\n-------------------------------")
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = os.path.join(save_dir, f"model_final_{timestamp}.pt")
-    torch.save(model.state_dict(), save_path)
-    print(f"Training complete, model saved to {save_path}")
+        # Train and validate
+        train_loop(train_loader)
+        val_loss = test_loop(dev_loader)
+
+        train_losses.append(0.0)  # We don't track train loss in detail here
+        val_losses.append(val_loss)
+
+        # Check for improvement and early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            # Save best model checkpoint
+            best_model_path = os.path.join(save_dir, "model_best.pt")
+            torch.save(
+                {
+                    "epoch": t + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": val_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
+                },
+                best_model_path,
+            )
+            print(f"✓ New best model saved! Val Loss: {val_loss:.6f}")
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs")
+
+        # Early stopping check
+        if epochs_without_improvement >= early_stopping_patience:
+            print(
+                f"\nEarly stopping triggered after {early_stopping_patience} epochs without improvement"
+            )
+            print(f"Best validation loss: {best_val_loss:.6f}")
+            break
+
+        # Save periodic checkpoint
+        if (t + 1) % 5 == 0:
+            checkpoint_path = os.path.join(save_dir, f"model_epoch_{t+1}.pt")
+            torch.save(
+                {
+                    "epoch": t + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": val_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
+                },
+                checkpoint_path,
+            )
+            print(f"Model checkpoint saved to {checkpoint_path}")
+
+    # Save final model checkpoint
+    final_model_path = os.path.join(save_dir, "model_final.pt")
+    torch.save(
+        {
+            "epoch": t + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": val_losses[-1],
+            "config": {
+                "model_name": model_name,
+                "learning_rate": learning_rate,
+                "epochs": epochs,
+                "early_stopping_patience": early_stopping_patience,
+            },
+        },
+        final_model_path,
+    )
+    print(f"Final model saved to {final_model_path}")
+
+    # Save training history
+    history = {
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "best_val_loss": best_val_loss,
+        "config": {
+            "model_name": model_name,
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "early_stopping_patience": early_stopping_patience,
+        },
+    }
+    history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
+    torch.save(history, history_path)
+    print(f"Training history saved: {history_path}")
+
+    print(f"Training complete, best model saved to {save_dir}")
+
+    return {
+        "best_val_loss": best_val_loss,
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "save_dir": save_dir,
+    }
 
 
 def calculate_pick_metrics(true_picks, pred_picks, tolerance=30):
@@ -323,10 +426,22 @@ def calculate_pick_mae(true_picks, pred_picks):
 def evaluate_phase_model(
     model: sbm.WaveformModel, model_path: str, data: sbd.BenchmarkDataset
 ):
-    # Load model weights
-    state_dict = torch.load(model_path, map_location=model.device, weights_only=True)
+    # Load model checkpoint or weights
+    checkpoint = torch.load(model_path, map_location=model.device, weights_only=True)
+
+    # Handle different checkpoint formats
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        # Full checkpoint format
+        state_dict = checkpoint["model_state_dict"]
+        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
+        print(f"Validation loss: {checkpoint.get('val_loss', 'N/A')}")
+    else:
+        # Legacy weights format
+        state_dict = checkpoint
+        print("Loaded legacy model weights format")
+
     model.load_state_dict(state_dict)
-    print(f"Loaded model weights from {model_path}")
+    print(f"Loaded model from {model_path}")
 
     test_generator, _, _ = dl.load_dataset(data=data, model=model, type="test")
 

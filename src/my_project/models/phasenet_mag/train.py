@@ -20,6 +20,7 @@ def train_phasenet_mag(
     weight_decay=1e-5,
     scheduler_patience=5,
     save_every=5,
+    early_stopping_patience=10,
 ):
     """
     Train PhaseNetMag model for magnitude regression.
@@ -35,6 +36,7 @@ def train_phasenet_mag(
         weight_decay: Weight decay for optimizer
         scheduler_patience: Patience for learning rate scheduler
         save_every: Save model every N epochs
+        early_stopping_patience: Stop training if no improvement for N epochs
     """
     print("\n" + "=" * 50)
     print("TRAINING")
@@ -126,22 +128,28 @@ def train_phasenet_mag(
         print(f"Validation avg loss: {avg_loss:>8f}")
         return avg_loss
 
-    # Create save directory
-    save_dir = f"src/trained_weights/{model_name}"
+    # Create save directory with timestamp
+    script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = f"src/trained_weights/{model_name}_{script_datetime}"
     os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving models to: {save_dir}")
 
     # Training loop
     best_val_loss = float("inf")
     train_losses = []
     val_losses = []
+    learning_rates = []
+    epochs_without_improvement = 0
 
     for epoch in range(epochs):
         print(f"\nEpoch {epoch + 1}/{epochs}")
+        print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
         print("-" * 50)
 
         # Train
         train_loss = train_loop(train_loader)
         train_losses.append(train_loss)
+        learning_rates.append(optimizer.param_groups[0]["lr"])
 
         # Validate
         val_loss = validation_loop(dev_loader)
@@ -150,33 +158,124 @@ def train_phasenet_mag(
         # Learning rate scheduling
         scheduler.step(val_loss)
 
-        # Save checkpoint
-        if (epoch + 1) % save_every == 0:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            checkpoint_path = os.path.join(
-                save_dir, f"model_epoch_{epoch+1}_{timestamp}.pt"
+        # Check for improvement and early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            # Save best model checkpoint
+            best_model_path = os.path.join(save_dir, "model_best.pt")
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": val_loss,
+                    "train_loss": train_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "optimizer": optimizer_name,
+                        "weight_decay": weight_decay,
+                        "scheduler_patience": scheduler_patience,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
+                },
+                best_model_path,
             )
-            torch.save(model.state_dict(), checkpoint_path)
+            print(f"✓ New best model saved! Val Loss: {val_loss:.6f}")
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs")
+
+        # Early stopping check
+        if epochs_without_improvement >= early_stopping_patience:
+            print(
+                f"\nEarly stopping triggered after {early_stopping_patience} epochs without improvement"
+            )
+            print(f"Best validation loss: {best_val_loss:.6f}")
+            break
+
+        # Save periodic checkpoint
+        if (epoch + 1) % save_every == 0:
+            checkpoint_path = os.path.join(save_dir, f"model_epoch_{epoch+1}.pt")
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "optimizer": optimizer_name,
+                        "weight_decay": weight_decay,
+                        "scheduler_patience": scheduler_patience,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
+                },
+                checkpoint_path,
+            )
             print(f"Checkpoint saved: {checkpoint_path}")
 
-    # Save final model
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    final_model_path = os.path.join(save_dir, f"model_final_{timestamp}.pt")
-    torch.save(model.state_dict(), final_model_path)
+    # Save final model checkpoint
+    final_model_path = os.path.join(save_dir, "model_final.pt")
+    torch.save(
+        {
+            "epoch": epoch + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "train_loss": train_losses[-1],
+            "val_loss": val_losses[-1],
+            "config": {
+                "model_name": model_name,
+                "learning_rate": learning_rate,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "optimizer": optimizer_name,
+                "weight_decay": weight_decay,
+                "scheduler_patience": scheduler_patience,
+                "early_stopping_patience": early_stopping_patience,
+            },
+        },
+        final_model_path,
+    )
     print(f"Final model saved: {final_model_path}")
 
     # Save training history
     history = {
         "train_losses": train_losses,
         "val_losses": val_losses,
+        "learning_rates": learning_rates,
         "best_val_loss": best_val_loss,
+        "config": {
+            "model_name": model_name,
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "optimizer": optimizer_name,
+            "weight_decay": weight_decay,
+            "scheduler_patience": scheduler_patience,
+            "early_stopping_patience": early_stopping_patience,
+        },
     }
-    history_path = os.path.join(save_dir, f"training_history_{timestamp}.pt")
+    history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
     torch.save(history, history_path)
     print(f"Training history saved: {history_path}")
 
     print("\nTraining completed!")
     print(f"Best validation loss: {best_val_loss:.6f}")
+
+    return {
+        "best_val_loss": best_val_loss,
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "save_dir": save_dir,
+    }
 
 
 def main():
@@ -215,6 +314,12 @@ def main():
         type=int,
         default=1,
         help="Filter factor for model architecture",
+    )
+    parser.add_argument(
+        "--early_stopping_patience",
+        type=int,
+        default=10,
+        help="Stop training if no improvement for N epochs",
     )
 
     args = parser.parse_args()
@@ -255,6 +360,7 @@ def main():
         weight_decay=args.weight_decay,
         scheduler_patience=args.scheduler_patience,
         save_every=args.save_every,
+        early_stopping_patience=args.early_stopping_patience,
     )
 
 

@@ -67,6 +67,7 @@ def train_phase_model(
         lstm_num_layers = kwargs.get("lstm_num_layers", 1)
         lstm_bidirectional = kwargs.get("lstm_bidirectional", True)
         num_workers = kwargs.get("num_workers", 4)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 10)
 
         return train_phasenet_lstm_model(
             data=data,
@@ -78,6 +79,9 @@ def train_phase_model(
             learning_rate=learning_rate,
             batch_size=batch_size,
             num_workers=num_workers,
+            early_stopping_patience=early_stopping_patience,
+            model=model,
+            model_name=model_name,
         )
     elif isinstance(model, sbm.PhaseNet):
         print(f"Training standard PhaseNet model")
@@ -85,12 +89,15 @@ def train_phase_model(
         # Ensure model is on the correct device
         model.to_preferred_device(verbose=True)
 
+        early_stopping_patience = kwargs.get("early_stopping_patience", 10)
+
         train_phasenet(
             model_name=model_name,
             model=model,
             data=data,
             learning_rate=learning_rate,
             epochs=epochs,
+            early_stopping_patience=early_stopping_patience,
         )
         return model
     else:
@@ -165,6 +172,8 @@ def train_magnitude_model(
     if isinstance(model, PhaseNetMag):
         print(f"Training PhaseNetMag model")
 
+        early_stopping_patience = kwargs.get("early_stopping_patience", 10)
+
         results = train_phasenet_mag(
             model_name=model_name,
             model=model,
@@ -176,6 +185,7 @@ def train_magnitude_model(
             weight_decay=weight_decay,
             scheduler_patience=scheduler_patience,
             save_every=save_every,
+            early_stopping_patience=early_stopping_patience,
         )
         return {"model_type": "phasenet_mag", "results": results}
 

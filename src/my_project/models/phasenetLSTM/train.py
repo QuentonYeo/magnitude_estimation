@@ -1,6 +1,7 @@
 import torch
 import os
 from datetime import datetime
+from typing import Union
 
 import seisbench.models as sbm
 import seisbench.data as sbd
@@ -8,6 +9,7 @@ from seisbench.data import BenchmarkDataset
 
 from my_project.loaders import data_loader as dl
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
+from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 
 
@@ -19,6 +21,7 @@ def train_phasenetLSTM(
     epochs=5,
     batch_size: int = 256,
     num_workers: int = 4,
+    early_stopping_patience=10,
 ):
     train_generator, train_loader, _ = dl.load_dataset(
         data, model, "train", batch_size=batch_size, num_workers=num_workers
@@ -79,25 +82,131 @@ def train_phasenetLSTM(
 
         test_loss /= num_batches
         print(f"Test avg loss: {test_loss:>8f} \n")
+        return test_loss
 
-    # Train model with checkpoint each 5 epochs
-    save_dir = f"src/trained_weights/{model_name}"
+    # Create save directory with timestamp
+    script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = f"src/trained_weights/{model_name}_{script_datetime}"
     os.makedirs(save_dir, exist_ok=True)
+    print(f"Saving models to: {save_dir}")
+
+    # Training loop with early stopping
+    best_val_loss = float("inf")
+    train_losses = []
+    val_losses = []
+    epochs_without_improvement = 0
 
     for t in range(epochs):
-        print(f"Epoch {t + 1}\n-------------------------------")
-        train_loop(train_loader)
-        test_loop(dev_loader)
-        if (t + 1) % 5 == 0:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_path = os.path.join(save_dir, f"model_epoch_{t+1}_{timestamp}.pt")
-            torch.save(model.state_dict(), save_path)
-            print(f"Model saved to {save_path}")
+        print(f"Epoch {t + 1}/{epochs}\n-------------------------------")
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = os.path.join(save_dir, f"model_final_{timestamp}.pt")
-    torch.save(model.state_dict(), save_path)
-    print(f"Training complete, model saved to {save_path}")
+        # Train and validate
+        train_loop(train_loader)
+        val_loss = test_loop(dev_loader)
+
+        train_losses.append(0.0)  # We don't track train loss in detail here
+        val_losses.append(val_loss)
+
+        # Check for improvement and early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            # Save best model checkpoint
+            best_model_path = os.path.join(save_dir, "model_best.pt")
+            torch.save(
+                {
+                    "epoch": t + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": val_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
+                },
+                best_model_path,
+            )
+            print(f"✓ New best model saved! Val Loss: {val_loss:.6f}")
+        else:
+            epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epochs")
+
+        # Early stopping check
+        if epochs_without_improvement >= early_stopping_patience:
+            print(
+                f"\nEarly stopping triggered after {early_stopping_patience} epochs without improvement"
+            )
+            print(f"Best validation loss: {best_val_loss:.6f}")
+            break
+
+        # Save periodic checkpoint
+        if (t + 1) % 5 == 0:
+            checkpoint_path = os.path.join(save_dir, f"model_epoch_{t+1}.pt")
+            torch.save(
+                {
+                    "epoch": t + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": val_loss,
+                    "config": {
+                        "model_name": model_name,
+                        "learning_rate": learning_rate,
+                        "epochs": epochs,
+                        "batch_size": batch_size,
+                        "early_stopping_patience": early_stopping_patience,
+                    },
+                },
+                checkpoint_path,
+            )
+            print(f"Model checkpoint saved to {checkpoint_path}")
+
+    # Save final model checkpoint
+    final_model_path = os.path.join(save_dir, "model_final.pt")
+    torch.save(
+        {
+            "epoch": t + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": val_losses[-1],
+            "config": {
+                "model_name": model_name,
+                "learning_rate": learning_rate,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "early_stopping_patience": early_stopping_patience,
+            },
+        },
+        final_model_path,
+    )
+    print(f"Final model saved to {final_model_path}")
+
+    # Save training history
+    history = {
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "best_val_loss": best_val_loss,
+        "config": {
+            "model_name": model_name,
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "early_stopping_patience": early_stopping_patience,
+        },
+    }
+    history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
+    torch.save(history, history_path)
+    print(f"Training history saved: {history_path}")
+
+    print(f"Training complete, best model saved to {save_dir}")
+
+    return {
+        "best_val_loss": best_val_loss,
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "save_dir": save_dir,
+    }
 
 
 def train_phasenet_lstm_model(
@@ -110,6 +219,9 @@ def train_phasenet_lstm_model(
     learning_rate: float = 1e-3,
     batch_size: int = 32,
     num_workers: int = 4,
+    early_stopping_patience: int = 10,
+    model: Union[PhaseNetLSTM, PhaseNetConvLSTM] = None,
+    model_name: str = None,
 ):
     """
     Train PhaseNet-LSTM for seismic phase picking.
@@ -142,14 +254,14 @@ def train_phasenet_lstm_model(
     print("=" * 70)
     print()
 
-    # Create model
-    # model = PhaseNetLSTM(
-    #     filter_factor=filter_factor,
-    #     lstm_hidden_size=lstm_hidden_size,
-    #     lstm_num_layers=lstm_num_layers,
-    #     lstm_bidirectional=lstm_bidirectional,
-    # )
-    model = PhaseNetConvLSTM()
+    # Create model if not provided (default to PhaseNetLSTM for backward compatibility)
+    if model is None:
+        model = PhaseNetLSTM(
+            filter_factor=filter_factor,
+            lstm_hidden_size=lstm_hidden_size,
+            lstm_num_layers=lstm_num_layers,
+            lstm_bidirectional=lstm_bidirectional,
+        )
 
     # Move to preferred device (GPU if available)
     if hasattr(model, "to_preferred_device"):
@@ -161,14 +273,17 @@ def train_phasenet_lstm_model(
         model = model.to(device)
         print(f"Model moved to device: {device}")
 
-    # Generate model name for saving
-    lstm_config = (
-        f"h{lstm_hidden_size if lstm_hidden_size else 'auto'}_l{lstm_num_layers}"
-    )
-    if lstm_bidirectional:
-        lstm_config += "_bi"
+    # Generate model name for saving (if not provided)
+    if model_name is None:
+        lstm_config = (
+            f"h{lstm_hidden_size if lstm_hidden_size else 'auto'}_l{lstm_num_layers}"
+        )
+        if lstm_bidirectional:
+            lstm_config += "_bi"
 
-    model_name = f"PhaseNetLSTM_{data.name}_f{filter_factor}_{lstm_config}"
+        # Use the actual model class name for the model name
+        model_class_name = model.__class__.__name__
+        model_name = f"{model_class_name}_{data.name}_f{filter_factor}_{lstm_config}"
 
     print(f"\nModel name: {model_name}\n")
 
@@ -181,6 +296,7 @@ def train_phasenet_lstm_model(
         epochs=epochs,
         batch_size=batch_size,
         num_workers=num_workers,
+        early_stopping_patience=early_stopping_patience,
     )
 
     return model, best_loss

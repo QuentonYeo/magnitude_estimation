@@ -20,7 +20,6 @@ from my_project.loaders.magnitude_labellers import (
 from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
-from my_project.models.AMAG.model import AMAG
 from my_project.models.AMAG_v2.model import MagnitudeNet
 
 # Only training for S and P picks, map the labels
@@ -111,54 +110,6 @@ def get_magnitude_and_phase_augmentation(windowlen=3001):
     return augmentations
 
 
-def get_amag_augmentation(windowlen=600):
-    """
-    Define augmentation pipeline for AMAG model following the paper's preprocessing:
-
-    1. Bandpass filter 1-20 Hz (mentioned in paper)
-    2. Window around first P pick
-    3. Random window of 600 samples (6 seconds at 100 Hz)
-    4. Change dtype to float32
-    5. AMAG magnitude labelling with equation (11): label = mag + 1 for signal
-
-    Note: Detrending and demeaning are handled in the model's annotate_batch_pre method.
-
-    Args:
-        windowlen (int): Length of the window in samples (default 600 for 6s at 100Hz)
-
-    Returns:
-        list: Augmentation pipeline for SeisBench generator
-    """
-    p_phase_keys = list(phase_dict.keys())
-
-    augmentations = [
-        # 1. Bandpass filter 1-20 Hz (paper's preprocessing step)
-        sbg.Filter(
-            N=4,  # Filter order
-            Wn=[1.0, 20.0],  # 1-20 Hz as specified in paper
-            btype="bandpass",
-        ),
-        # 2. Window around first P pick with flexibility
-        sbg.WindowAroundSample(
-            p_phase_keys,
-            samples_before=int(windowlen * 0.5),  # Center around P arrival
-            windowlen=windowlen * 1.5,  # Larger initial window for flexibility
-            selection="first",  # Always use first available P pick
-            strategy="pad",  # Pad if needed
-        ),
-        # 3. Random window to get exactly 600 samples
-        # sbg.RandomWindow(windowlen=windowlen, strategy="pad"),
-        # 4. Change dtype to float32 for PyTorch
-        sbg.ChangeDtype(np.float32),
-        # 5. AMAG magnitude labeller with equation (11): mag + 1
-        # MagnitudeLabellerAMAG(phase_dict=phase_dict, debug=False),
-        MagnitudeLabellerPhaseNet(phase_dict=phase_dict),
-        sbg.ProbabilisticLabeller(label_columns=phase_dict, sigma=30, dim=0),
-    ]
-
-    return augmentations
-
-
 def load_dataset(
     data: BenchmarkDataset,
     model: WaveformModel,
@@ -182,8 +133,6 @@ def load_dataset(
 
     if isinstance(model, (PhaseNetMag, MagnitudeNet)):
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3000))
-    elif isinstance(model, AMAG):
-        ds_generator.add_augmentations(get_amag_augmentation())
     elif isinstance(model, (sbm.PhaseNet, PhaseNetLSTM, PhaseNetConvLSTM)):
         ds_generator.add_augmentations(get_phase_augmentation())
     else:

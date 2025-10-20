@@ -35,11 +35,23 @@ def evaluate_phasenet_mag(
     """
     print(f"Evaluating PhaseNetMag from {model_path}")
 
-    # Load model weights
-    state_dict = torch.load(model_path, map_location=model.device, weights_only=True)
+    # Load model checkpoint or weights
+    checkpoint = torch.load(model_path, map_location=model.device, weights_only=True)
+
+    # Handle different checkpoint formats
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        # Full checkpoint format
+        state_dict = checkpoint["model_state_dict"]
+        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
+        print(f"Validation loss: {checkpoint.get('val_loss', 'N/A')}")
+    else:
+        # Legacy weights format
+        state_dict = checkpoint
+        print("Loaded legacy model weights format")
+
     model.load_state_dict(state_dict)
     model.eval()
-    print(f"Loaded model weights from {model_path}")
+    print(f"Loaded model from {model_path}")
 
     # Load test data
     test_generator, test_loader, _ = dl.load_dataset(
