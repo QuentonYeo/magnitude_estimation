@@ -20,12 +20,15 @@ from my_project.models.phasenet_mag.train import train_phasenet_mag
 from my_project.models.phasenet_mag.evaluate import evaluate_phasenet_mag
 from my_project.models.AMAG_v2.train import train_magnitude_net
 from my_project.models.AMAG_v2.evaluate import evaluate_magnitude_net
+from my_project.models.EQTransformer.train import train_eqtransformer_mag
+from my_project.models.EQTransformer.evaluate import evaluate_eqtransformer_mag
 
 # Import model classes for type checking
 from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
+from my_project.models.EQTransformer.model import EQTransformerMag
 import seisbench.models as sbm
 
 
@@ -134,7 +137,7 @@ def evaluate_phase_model_unified(
 
 
 def train_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet],
+    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag],
     model_name: str,
     data: BenchmarkDataset,
     epochs: int = 50,
@@ -147,10 +150,10 @@ def train_magnitude_model(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Unified training function for magnitude-based models (PhaseNetMag, AMAG_v2).
+    Unified training function for magnitude-based models (PhaseNetMag, AMAG_v2, EQTransformerMag).
 
     Args:
-        model: Magnitude model instance (PhaseNetMag or MagnitudeNet)
+        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, or EQTransformerMag)
         model_name: Name for saving model checkpoints
         data: Dataset to train on
         epochs: Number of training epochs
@@ -211,12 +214,40 @@ def train_magnitude_model(
             gradient_clip=gradient_clip,
         )
         return {"model_type": "magnitude_net", "results": results}
+
+    elif isinstance(model, EQTransformerMag):
+        print(f"Training EQTransformerMag model")
+
+        # Extract EQTransformerMag-specific parameters from kwargs
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
+        scheduler_factor = kwargs.get("scheduler_factor", 0.5)
+        gradient_clip = kwargs.get("gradient_clip", 1.0)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 10)
+
+        results = train_eqtransformer_mag(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            scheduler_factor=scheduler_factor,
+            save_every=save_every,
+            gradient_clip=gradient_clip,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+        )
+        return {"model_type": "eqtransformer_mag", "results": results}
+
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")
 
 
 def evaluate_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet],
+    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag],
     model_path: str,
     data: BenchmarkDataset,
     batch_size: int = 256,
@@ -228,7 +259,7 @@ def evaluate_magnitude_model(
     Unified evaluation function for magnitude-based models.
 
     Args:
-        model: Magnitude model instance
+        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, or EQTransformerMag)
         model_path: Path to trained model weights
         data: Dataset to evaluate on
         batch_size: Batch size for evaluation
@@ -268,5 +299,19 @@ def evaluate_magnitude_model(
             num_examples=num_examples,
         )
         return {"model_type": "magnitude_net", "results": results}
+
+    elif isinstance(model, EQTransformerMag):
+        print(f"Evaluating EQTransformerMag model")
+
+        results = evaluate_eqtransformer_mag(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "eqtransformer_mag", "results": results}
+
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")

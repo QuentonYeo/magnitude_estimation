@@ -135,7 +135,38 @@ uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag 
        --dataset ETHZ --filter_factor 2 --norm peak
 ```
 
-#### 4. MagnitudeNet (`amag_v2`)
+#### 4. EQTransformerMag (`eqtransformer_mag`)
+
+**Description**: Transformer-based magnitude estimation model with 30-second input windows and attention mechanisms.
+
+**Configurable Parameters:**
+
+- `--n_class` (int, default=1): Number of output classes (magnitude regression)
+- `--phases` (str, default="PS"): Phase types to use
+- `--sampling_rate` (float, default=100.0): Sampling rate in Hz
+- `--cnn_blocks` (int, default=5): Number of CNN blocks in encoder
+- `--lstm_blocks` (int, default=2): Number of LSTM blocks
+- `--transformer_d_model` (int, default=128): Transformer model dimension
+- `--transformer_nhead` (int, default=8): Number of attention heads
+- `--transformer_num_encoder_layers` (int, default=4): Number of transformer encoder layers
+- `--transformer_dim_feedforward` (int, default=512): Transformer feedforward dimension
+
+**Examples:**
+
+```bash
+# Default configuration (30-second input windows)
+uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag --dataset ETHZ
+
+# High capacity model with larger transformer
+uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
+       --dataset ETHZ --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6
+
+# Lightweight model with smaller transformer
+uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
+       --dataset ETHZ --transformer_d_model 64 --transformer_nhead 4 --transformer_num_encoder_layers 2
+```
+
+#### 5. MagnitudeNet (`amag_v2`)
 
 **Description**: Advanced magnitude estimation model with LSTM and attention mechanisms.
 
@@ -214,13 +245,13 @@ uv run python -m src.my_project.main [OPTIONS]
 
 ### Core Arguments
 
-| Argument       | Description        | Choices                                                                      | Default    | Notes                             |
-| -------------- | ------------------ | ---------------------------------------------------------------------------- | ---------- | --------------------------------- |
-| `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                         | `ETHZ`     |                                   |
-| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `amag_v2` | `phasenet` |                                   |
-| `--model_path` | Path to model file | Any valid path                                                               | `""`       | Required for evaluation modes     |
-| `--epochs`     | Training epochs    | Positive integer                                                             | `5`        | For training modes only           |
-| `--plot`       | Show/save plots    | Flag (no value)                                                              | `False`    | For `eval_mag` and `plot_history` |
+| Argument       | Description        | Choices                                                                                           | Default    | Notes                             |
+| -------------- | ------------------ | ------------------------------------------------------------------------------------------------- | ---------- | --------------------------------- |
+| `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                                              | `ETHZ`     |                                   |
+| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `amag_v2` | `phasenet` |                                   |
+| `--model_path` | Path to model file | Any valid path                                                                                    | `""`       | Required for evaluation modes     |
+| `--epochs`     | Training epochs    | Positive integer                                                                                  | `5`        | For training modes only           |
+| `--plot`       | Show/save plots    | Flag (no value)                                                                                   | `False`    | For `eval_mag` and `plot_history` |
 
 ### Model Configuration Arguments
 
@@ -249,6 +280,20 @@ uv run python -m src.my_project.main [OPTIONS]
 | Argument | Description          | Type | Default | Notes                  |
 | -------- | -------------------- | ---- | ------- | ---------------------- |
 | `--norm` | Normalization method | str  | "std"   | Choices: "std", "peak" |
+
+#### EQTransformerMag Parameters
+
+| Argument                           | Description                          | Type  | Default | Notes                    |
+| ---------------------------------- | ------------------------------------ | ----- | ------- | ------------------------ |
+| `--n_class`                        | Number of output classes             | int   | 1       | For magnitude regression |
+| `--phases`                         | Phase types to use                   | str   | "PS"    |                          |
+| `--sampling_rate`                  | Sampling rate in Hz                  | float | 100.0   |                          |
+| `--cnn_blocks`                     | Number of CNN blocks                 | int   | 5       |                          |
+| `--lstm_blocks`                    | Number of LSTM blocks                | int   | 2       |                          |
+| `--transformer_d_model`            | Transformer model dimension          | int   | 128     |                          |
+| `--transformer_nhead`              | Number of attention heads            | int   | 8       |                          |
+| `--transformer_num_encoder_layers` | Number of transformer encoder layers | int   | 4       |                          |
+| `--transformer_dim_feedforward`    | Transformer feedforward dimension    | int   | 512     |                          |
 
 #### MagnitudeNet (AMAG v2) Parameters
 
@@ -293,6 +338,7 @@ uv run python -m src.my_project.main [OPTIONS]
 
 - **Magnitude Models:**
   - `phasenet_mag`: PhaseNet adapted for magnitude regression
+  - `eqtransformer_mag`: Transformer-based magnitude estimation with 30-second windows
   - `amag_v2`: Advanced Magnitude estimation model (MagnitudeNet)
 
 ### Available Datasets
@@ -332,6 +378,13 @@ uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag 
 uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
        --dataset ETHZ --epochs 50 --filter_factor 2 --norm peak
 
+# Train EQTransformerMag with default parameters (30-second windows)
+uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag --dataset ETHZ --epochs 50
+
+# Train EQTransformerMag with larger transformer configuration
+uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
+       --dataset ETHZ --epochs 50 --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6
+
 # Train AMAG_v2 (MagnitudeNet) with default parameters
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 50
 
@@ -365,6 +418,11 @@ uv run python -m src.my_project.main --mode eval_phase --model_type phasenet_con
 uv run python -m src.my_project.main --mode eval_mag --model_type phasenet_mag --dataset ETHZ \
        --model_path src/trained_weights/PhaseNetMag_ETHZ/model_final_*.pt \
        --filter_factor 2 --norm peak
+
+# Evaluate EQTransformerMag model with plots (matching training parameters)
+uv run python -m src.my_project.main --mode eval_mag --model_type eqtransformer_mag --dataset ETHZ \
+       --model_path src/trained_weights/EQTransformerMag_*/model_final_*.pt --plot \
+       --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6
 
 # Evaluate AMAG_v2 model with plots (matching training parameters)
 uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ \
@@ -420,7 +478,7 @@ The codebase has been refactored to provide a unified interface for all models:
 
 - **Unified Training Functions**:
   - `train_phase_model()`: Handles PhaseNet and PhaseNet-LSTM training
-  - `train_magnitude_model()`: Handles PhaseNetMag and AMAG_v2 training
+  - `train_magnitude_model()`: Handles PhaseNetMag, EQTransformerMag, and AMAG_v2 training
 - **Unified Evaluation Functions**:
 
   - `evaluate_phase_model_unified()`: Handles phase model evaluation

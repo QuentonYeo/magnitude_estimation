@@ -14,6 +14,7 @@ from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
+from my_project.models.EQTransformer.model import EQTransformerMag
 
 # Import unified training and inference functions
 from my_project.utils.unified_training import (
@@ -63,6 +64,15 @@ def extract_model_params(args, model_type):
             params["lstm_layers"] = args.lstm_layers
         if hasattr(args, "dropout") and args.dropout != 0.2:
             params["dropout"] = args.dropout
+
+    # EQTransformerMag specific parameters
+    elif model_type == "eqtransformer_mag":
+        if hasattr(args, "lstm_blocks") and args.lstm_blocks != 3:
+            params["lstm_blocks"] = args.lstm_blocks
+        if hasattr(args, "drop_rate") and args.drop_rate != 0.1:
+            params["drop_rate"] = args.drop_rate
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
 
     return params
 
@@ -129,6 +139,22 @@ def create_magnitude_model(model_type: str, **kwargs):
             lstm_layers=lstm_layers,
             dropout=dropout,
         )
+    elif model_type == "eqtransformer_mag":
+        # Extract EQTransformerMag-specific parameters with defaults
+        lstm_blocks = kwargs.get("lstm_blocks", 3)
+        drop_rate = kwargs.get("drop_rate", 0.1)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return EQTransformerMag(
+            in_channels=in_channels,
+            in_samples=3001,  # 30 seconds at 100Hz
+            sampling_rate=sampling_rate,
+            lstm_blocks=lstm_blocks,
+            drop_rate=drop_rate,
+            norm=norm,
+        )
     else:
         raise ValueError(f"Unknown magnitude model type: {model_type}")
 
@@ -153,6 +179,8 @@ def get_model_name(model_type: str, data_name: str, **kwargs):
         return f"PhaseNetMag_{data_name}"
     elif model_type == "amag_v2":
         return f"magnitudenet_v1"
+    elif model_type == "eqtransformer_mag":
+        return f"EQTransformerMag_{data_name}"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -194,6 +222,13 @@ def train_magnitude_unified(
     if model_type == "phasenet_mag":
         learning_rate = kwargs.get("learning_rate", 1e-4)
         optimizer_name = kwargs.get("optimizer_name", "Adam")
+    elif model_type == "eqtransformer_mag":
+        learning_rate = kwargs.get("learning_rate", 1e-4)  # Lower LR for transformers
+        optimizer_name = kwargs.get("optimizer_name", "AdamW")
+        kwargs.setdefault("batch_size", 64)  # Smaller batch for memory efficiency
+        kwargs.setdefault("scheduler_factor", 0.5)
+        kwargs.setdefault("gradient_clip", 1.0)
+        kwargs.setdefault("warmup_epochs", 5)  # Transformer warmup
     else:  # amag_v2
         learning_rate = kwargs.get("learning_rate", 1e-3)
         optimizer_name = kwargs.get("optimizer_name", "AdamW")
@@ -342,6 +377,7 @@ if __name__ == "__main__":
             "phasenet_conv_lstm",
             "phasenet_mag",
             "amag_v2",
+            "eqtransformer_mag",
         ],
         help="Model type to use",
     )
@@ -405,6 +441,18 @@ if __name__ == "__main__":
         "--dropout", type=float, default=0.2, help="Dropout rate for MagnitudeNet"
     )
     parser.add_argument(
+        "--lstm_blocks",
+        type=int,
+        default=3,
+        help="Number of LSTM blocks for EQTransformerMag",
+    )
+    parser.add_argument(
+        "--drop_rate",
+        type=float,
+        default=0.1,
+        help="Dropout rate for EQTransformerMag",
+    )
+    parser.add_argument(
         "--early_stopping_patience",
         type=int,
         default=10,
@@ -445,14 +493,16 @@ if __name__ == "__main__":
             )
             exit(1)
     elif args.mode == "train_mag":
-        if args.model_type in ["phasenet_mag", "amag_v2"]:
+        if args.model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag"]:
             model_params = extract_model_params(args, args.model_type)
             train_magnitude_unified(
                 data, args.model_type, epochs=args.epochs, **model_params
             )
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
-            print("Valid magnitude model types: phasenet_mag, amag_v2")
+            print(
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag"
+            )
             exit(1)
     elif args.mode == "eval_phase":
         if not args.model_path:
@@ -473,20 +523,24 @@ if __name__ == "__main__":
         if not args.model_path:
             print("Error: --model_path is required for eval_mag mode")
             exit(1)
-        if args.model_type in ["phasenet_mag", "amag_v2"]:
+        if args.model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag"]:
             model_params = extract_model_params(args, args.model_type)
+            # Use smaller batch size for EQTransformerMag due to transformer complexity
+            batch_size = 64 if args.model_type == "eqtransformer_mag" else 256
             evaluate_magnitude_unified(
                 data,
                 args.model_type,
                 args.model_path,
                 plot_examples=args.plot,
                 num_examples=5,
-                batch_size=256,
+                batch_size=batch_size,
                 **model_params,
             )
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
-            print("Valid magnitude model types: phasenet_mag, amag_v2")
+            print(
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag"
+            )
             exit(1)
     elif args.mode == "tutorial":
         tutorial_tests(data, model_path=args.model_path)
