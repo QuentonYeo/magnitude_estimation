@@ -41,10 +41,10 @@ The main script provides a unified interface for all seismic analysis workflows.
 uv run python -m src.my_project.main --mode train_phase --model_type phasenet --dataset ETHZ --epochs 10
 
 # Train a magnitude estimation model
-uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 20
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag --dataset ETHZ --epochs 20
 
 # Train with custom learning rate, batch size, and warmup
-uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag --learning_rate 0.002 --batch_size 64 --warmup_epochs 10
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag --learning_rate 0.0001 --batch_size 64 --warmup_epochs 10
 ```
 
 #### Basic Evaluation
@@ -54,7 +54,7 @@ uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag 
 uv run python -m src.my_project.main --mode eval_phase --model_type phasenet --dataset ETHZ --model_path path/to/model.pt
 
 # Evaluate a magnitude model with plots
-uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ --model_path path/to/model.pt --plot
+uv run python -m src.my_project.main --mode eval_mag --model_type vit_mag --dataset ETHZ --model_path path/to/model.pt --plot
 ```
 
 #### Getting Help
@@ -70,7 +70,7 @@ uv run python -m src.my_project.main --help
 
 All models (except the standard PhaseNet) support configurable parameters that can be set via command line arguments. This allows easy experimentation with different model architectures and capacities.
 
-**Universal Training Parameters for Magnitude Models**: All magnitude models (`phasenet_mag`, `eqtransformer_mag`, `amag_v2`) now support configurable `learning_rate`, `batch_size`, and `warmup_epochs` parameters for optimized training with learning rate warmup scheduling.
+**Universal Training Parameters for Magnitude Models**: All magnitude models (`phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2`) now support configurable `learning_rate`, `batch_size`, and `warmup_epochs` parameters for optimized training with learning rate warmup scheduling.
 
 ### Available Models and Parameters
 
@@ -183,7 +183,42 @@ uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer
        --batch_size 32 --warmup_epochs 3
 ```
 
-#### 5. MagnitudeNet (`amag_v2`)
+#### 5. ViTMagnitudeEstimator (`vit_mag`)
+
+**Description**: Vision Transformer adapted for seismic magnitude estimation with patch-based processing and self-attention mechanisms.
+
+**Configurable Parameters:**
+
+- `--filter_factor` (int, default=1): Controls model capacity
+- `--patch_size` (int, default=5): Size of input patches for transformer processing
+- `--embed_dim` (int, default=100): Embedding dimension for transformer
+- `--num_transformer_blocks` (int, default=4): Number of transformer encoder blocks
+- `--num_heads` (int, default=4): Number of attention heads in transformer
+- `--dropout` (float, default=0.1): Dropout rate in transformer blocks
+- `--final_dropout` (float, default=0.5): Final dropout rate before regression head
+- `--norm` (str, default="std"): Normalization method ("std" or "peak")
+- `--learning_rate` (float, default=0.0001): Learning rate for training (transformer-optimized)
+- `--batch_size` (int, default=64): Batch size for training (transformer-optimized)
+- `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
+
+**Examples:**
+
+```bash
+# Default configuration
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag --dataset ETHZ
+
+# High capacity model with larger transformer and extended warmup
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag \
+       --dataset ETHZ --patch_size 8 --embed_dim 256 --num_transformer_blocks 6 --num_heads 8 \
+       --learning_rate 0.0001 --batch_size 64 --warmup_epochs 10
+
+# Lightweight model with smaller transformer
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag \
+       --dataset ETHZ --patch_size 3 --embed_dim 64 --num_transformer_blocks 2 --num_heads 2 \
+       --dropout 0.05 --final_dropout 0.3 --batch_size 128 --warmup_epochs 3
+```
+
+#### 6. MagnitudeNet (`amag_v2`)
 
 **Description**: Advanced magnitude estimation model with LSTM and attention mechanisms.
 
@@ -275,7 +310,7 @@ uv run python -m src.my_project.main [OPTIONS]
 | Argument       | Description        | Choices                                                                                           | Default    | Notes                             |
 | -------------- | ------------------ | ------------------------------------------------------------------------------------------------- | ---------- | --------------------------------- |
 | `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                                              | `ETHZ`     |                                   |
-| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `amag_v2` | `phasenet` |                                   |
+| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2` | `phasenet` |                                   |
 | `--model_path` | Path to model file | Any valid path                                                                                    | `""`       | Required for evaluation modes     |
 | `--epochs`     | Training epochs    | Positive integer                                                                                  | `5`        | For training modes only           |
 | `--plot`       | Show/save plots    | Flag (no value)                                                                                   | `False`    | For `eval_mag` and `plot_history` |
@@ -284,8 +319,8 @@ uv run python -m src.my_project.main [OPTIONS]
 
 | Argument          | Description                                   | Type  | Default | Notes                                                                    |
 | ----------------- | --------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------ |
-| `--learning_rate` | Learning rate for training                    | float | varies  | Model-specific defaults: EQTransformerMag=0.0001, others=0.001           |
-| `--batch_size`    | Batch size for training                       | int   | varies  | Model-specific defaults: EQTransformerMag=16, PhaseNetMag=32, AMAG_v2=64 |
+| `--learning_rate` | Learning rate for training                    | float | varies  | Model-specific defaults: EQTransformerMag/ViTMag=0.0001, others=0.001           |
+| `--batch_size`    | Batch size for training                       | int   | varies  | Model-specific defaults: EQTransformerMag=16, PhaseNetMag=32, ViTMag/AMAG_v2=64 |
 | `--warmup_epochs` | Number of warmup epochs with linear LR warmup | int   | 5       | Learning rate starts at 10% and linearly increases to 100%               |
 
 **Examples:**
@@ -298,6 +333,10 @@ uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag 
 # Train EQTransformerMag with optimized parameters
 uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
        --learning_rate 0.0001 --batch_size 16 --warmup_epochs 5
+
+# Train ViTMag with optimized parameters
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag \
+       --learning_rate 0.0001 --batch_size 64 --warmup_epochs 5
 
 # Train AMAG_v2 with stability warmup
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
@@ -346,6 +385,18 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 | `--transformer_num_encoder_layers` | Number of transformer encoder layers | int   | 4       |                          |
 | `--transformer_dim_feedforward`    | Transformer feedforward dimension    | int   | 512     |                          |
 
+#### ViTMagnitudeEstimator Parameters
+
+| Argument                    | Description                             | Type  | Default | Notes                  |
+| --------------------------- | --------------------------------------- | ----- | ------- | ---------------------- |
+| `--patch_size`              | Patch size for transformer processing  | int   | 5       |                        |
+| `--embed_dim`               | Embedding dimension for transformer     | int   | 100     |                        |
+| `--num_transformer_blocks`  | Number of transformer encoder blocks    | int   | 4       |                        |
+| `--num_heads`               | Number of attention heads               | int   | 4       |                        |
+| `--dropout`                 | Dropout rate in transformer blocks     | float | 0.1     |                        |
+| `--final_dropout`           | Final dropout rate before regression   | float | 0.5     |                        |
+| `--norm`                    | Normalization method                    | str   | "std"   | Choices: "std", "peak" |
+
 #### MagnitudeNet (AMAG v2) Parameters
 
 | Argument        | Description           | Type  | Default | Notes |
@@ -390,6 +441,7 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 - **Magnitude Models:**
   - `phasenet_mag`: PhaseNet adapted for magnitude regression
   - `eqtransformer_mag`: Transformer-based magnitude estimation with 30-second windows
+  - `vit_mag`: Vision Transformer adapted for magnitude estimation with patch-based processing
   - `amag_v2`: Advanced Magnitude estimation model (MagnitudeNet)
 
 ### Available Datasets
@@ -438,6 +490,14 @@ uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer
        --dataset ETHZ --epochs 50 --transformer_d_model 256 --transformer_nhead 16 \
        --transformer_num_encoder_layers 6 --learning_rate 0.0001 --batch_size 16 --warmup_epochs 8
 
+# Train ViTMag with default parameters (Vision Transformer)
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag --dataset ETHZ --epochs 50
+
+# Train ViTMag with transformer-optimized parameters
+uv run python -m src.my_project.main --mode train_mag --model_type vit_mag \
+       --dataset ETHZ --epochs 50 --patch_size 8 --embed_dim 256 --num_transformer_blocks 6 \
+       --num_heads 8 --learning_rate 0.0001 --batch_size 64 --warmup_epochs 8
+
 # Train AMAG_v2 (MagnitudeNet) with default parameters
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 50
 
@@ -477,6 +537,11 @@ uv run python -m src.my_project.main --mode eval_mag --model_type phasenet_mag -
 uv run python -m src.my_project.main --mode eval_mag --model_type eqtransformer_mag --dataset ETHZ \
        --model_path src/trained_weights/EQTransformerMag_*/model_final_*.pt --plot \
        --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6
+
+# Evaluate ViTMag model with plots (matching training parameters)
+uv run python -m src.my_project.main --mode eval_mag --model_type vit_mag --dataset ETHZ \
+       --model_path src/trained_weights/ViTMag_*/model_final_*.pt --plot \
+       --patch_size 8 --embed_dim 256 --num_transformer_blocks 6 --num_heads 8
 
 # Evaluate AMAG_v2 model with plots (matching training parameters)
 uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ \
@@ -541,71 +606,3 @@ The codebase has been refactored to provide a unified interface for all models:
 - **Model Factory Functions**: Automatically create and configure models based on `--model_type`
 
 This design makes it easy to experiment with different models using the same workflow commands.
-
-## Hyperparameter Tuning
-
-The training script now supports automatic hyperparameter optimization using [Optuna](https://optuna.org/), a state-of-the-art hyperparameter optimization framework. This allows you to automatically find the best combination of hyperparameters for your magnitude estimation model.
-
-#### Basic Hyperparameter Tuning
-
-To run hyperparameter tuning with default settings:
-
-```bash
-uv run src/my_project/models/phasenet_mag/train.py --tune --dataset ETHZ
-```
-
-#### Advanced Hyperparameter Options
-
-```bash
-uv run src/my_project/models/phasenet_mag/train.py \
-    --tune \
-    --dataset ETHZ \
-    --n_trials 50 \
-    --max_epochs_per_trial 20 \
-    --study_name "my_magnitude_study"
-```
-
-#### Hyperparameter Tuning Options
-
-- `--tune`: Enable hyperparameter tuning mode
-- `--n_trials`: Number of trials to run (default: 100)
-- `--max_epochs_per_trial`: Maximum epochs per trial during tuning (default: 30)
-- `--study_name`: Name for the Optuna study (default: auto-generated)
-
-#### Regular Training Options (when `--tune` is not used)
-
-- `--epochs`: Number of training epochs (default: 50)
-- `--lr`: Learning rate (default: 1e-3)
-- `--batch_size`: Batch size (default: 256)
-- `--optimizer`: Optimizer type (Adam or AdamW, default: Adam)
-- `--weight_decay`: Weight decay for optimizer (default: 1e-5)
-- `--scheduler_patience`: Patience for learning rate scheduler (default: 5)
-- `--filter_factor`: Filter factor for model architecture (default: 1)
-- `--save_every`: Save model every N epochs (default: 5)
-
-### Output Files
-
-When running hyperparameter tuning, several files are created in `src/trained_weights/{model_name}/optuna_studies/`:
-
-#### CSV Files
-
-- `{study_name}_results.csv`: Detailed results for all trials including:
-  - Trial number, validation loss, state, timing
-  - All hyperparameter values
-  - Intermediate validation losses for each epoch
-- `{study_name}_best_params.csv`: Best hyperparameters found:
-  - Optimal parameter values
-  - Best validation loss achieved
-  - Trial number of best result
-
-#### Visualization
-
-- `{study_name}_analysis.png`: Multi-panel plot showing:
-  - Optimization history (validation loss vs trial number)
-  - Parameter importance (simplified)
-  - Learning rate distribution for top trials
-  - Training progress for best trial
-
-#### Study Object
-
-- `{study_name}.pkl`: Pickled Optuna study object for advanced analysis

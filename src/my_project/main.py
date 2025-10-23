@@ -15,6 +15,7 @@ from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.EQTransformer.model import EQTransformerMag
+from my_project.models.ViT.model import ViTMagnitudeEstimator
 
 # Import unified training and inference functions
 from my_project.utils.unified_training import (
@@ -38,7 +39,7 @@ def extract_model_params(args, model_type):
         params["early_stopping_patience"] = args.early_stopping_patience
 
     # Universal training parameters for magnitude models
-    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag"]:
+    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag", "vit_mag"]:
         if hasattr(args, "learning_rate") and args.learning_rate is not None:
             params["learning_rate"] = args.learning_rate
         if hasattr(args, "batch_size") and args.batch_size is not None:
@@ -83,6 +84,23 @@ def extract_model_params(args, model_type):
         # EQTransformerMag-specific training parameters
         if hasattr(args, "warmup_epochs") and args.warmup_epochs != 5:
             params["warmup_epochs"] = args.warmup_epochs
+
+    # ViT specific parameters
+    elif model_type == "vit_mag":
+        if hasattr(args, "patch_size") and args.patch_size != 5:
+            params["patch_size"] = args.patch_size
+        if hasattr(args, "embed_dim") and args.embed_dim != 100:
+            params["embed_dim"] = args.embed_dim
+        if hasattr(args, "num_transformer_blocks") and args.num_transformer_blocks != 4:
+            params["num_transformer_blocks"] = args.num_transformer_blocks
+        if hasattr(args, "num_heads") and args.num_heads != 4:
+            params["num_heads"] = args.num_heads
+        if hasattr(args, "dropout") and args.dropout != 0.1:
+            params["dropout"] = args.dropout
+        if hasattr(args, "final_dropout") and args.final_dropout != 0.5:
+            params["final_dropout"] = args.final_dropout
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
 
     return params
 
@@ -165,6 +183,37 @@ def create_magnitude_model(model_type: str, **kwargs):
             drop_rate=drop_rate,
             norm=norm,
         )
+    elif model_type == "vit_mag":
+        # Extract ViT-specific parameters with defaults
+        conv_channels = kwargs.get("conv_channels", [64, 32, 32, 32])
+        pool_sizes = kwargs.get("pool_sizes", [2, 2, 2, 5])
+        patch_size = kwargs.get("patch_size", 5)
+        embed_dim = kwargs.get("embed_dim", 100)
+        num_transformer_blocks = kwargs.get("num_transformer_blocks", 4)
+        num_heads = kwargs.get("num_heads", 4)
+        transformer_mlp_dim = kwargs.get("transformer_mlp_dim", 200)
+        final_mlp_dims = kwargs.get("final_mlp_dims", [1000, 500])
+        dropout = kwargs.get("dropout", 0.1)
+        final_dropout = kwargs.get("final_dropout", 0.5)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return ViTMagnitudeEstimator(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            conv_channels=conv_channels,
+            pool_sizes=pool_sizes,
+            patch_size=patch_size,
+            embed_dim=embed_dim,
+            num_transformer_blocks=num_transformer_blocks,
+            num_heads=num_heads,
+            transformer_mlp_dim=transformer_mlp_dim,
+            final_mlp_dims=final_mlp_dims,
+            dropout=dropout,
+            final_dropout=final_dropout,
+            norm=norm,
+        )
     else:
         raise ValueError(f"Unknown magnitude model type: {model_type}")
 
@@ -191,6 +240,8 @@ def get_model_name(model_type: str, data_name: str, **kwargs):
         return f"magnitudenet_v1"
     elif model_type == "eqtransformer_mag":
         return f"EQTransformerMag_{data_name}"
+    elif model_type == "vit_mag":
+        return f"ViTMag_{data_name}"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -234,6 +285,13 @@ def train_magnitude_unified(
         batch_size = kwargs.pop("batch_size", 256)
         optimizer_name = kwargs.get("optimizer_name", "Adam")
     elif model_type == "eqtransformer_mag":
+        learning_rate = kwargs.pop("learning_rate", 1e-4)  # Lower LR for transformers
+        batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
+        optimizer_name = kwargs.get("optimizer_name", "AdamW")
+        kwargs.setdefault("scheduler_factor", 0.5)
+        kwargs.setdefault("gradient_clip", 1.0)
+        kwargs.setdefault("warmup_epochs", 5)  # Transformer warmup
+    elif model_type == "vit_mag":
         learning_rate = kwargs.pop("learning_rate", 1e-4)  # Lower LR for transformers
         batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
         optimizer_name = kwargs.get("optimizer_name", "AdamW")
@@ -307,8 +365,17 @@ def evaluate_magnitude_unified(
 
     model = create_magnitude_model(model_type, **kwargs)
 
+    # Extract only evaluation-specific parameters
+    eval_kwargs = {}
+    if "batch_size" in kwargs:
+        eval_kwargs["batch_size"] = kwargs["batch_size"]
+    if "plot_examples" in kwargs:
+        eval_kwargs["plot_examples"] = kwargs["plot_examples"]
+    if "num_examples" in kwargs:
+        eval_kwargs["num_examples"] = kwargs["num_examples"]
+
     return evaluate_magnitude_model(
-        model=model, model_path=model_path, data=data, **kwargs
+        model=model, model_path=model_path, data=data, **eval_kwargs
     )
 
 
@@ -391,6 +458,7 @@ if __name__ == "__main__":
             "phasenet_mag",
             "amag_v2",
             "eqtransformer_mag",
+            "vit_mag",
         ],
         help="Model type to use",
     )
@@ -492,6 +560,38 @@ if __name__ == "__main__":
         help="Number of warmup epochs for EQTransformerMag learning rate scheduler",
     )
 
+    # ViT specific parameters
+    parser.add_argument(
+        "--patch_size",
+        type=int,
+        default=5,
+        help="Patch size for ViT model",
+    )
+    parser.add_argument(
+        "--embed_dim",
+        type=int,
+        default=100,
+        help="Embedding dimension for ViT model",
+    )
+    parser.add_argument(
+        "--num_transformer_blocks",
+        type=int,
+        default=4,
+        help="Number of transformer blocks for ViT model",
+    )
+    parser.add_argument(
+        "--num_heads",
+        type=int,
+        default=4,
+        help="Number of attention heads for ViT model",
+    )
+    parser.add_argument(
+        "--final_dropout",
+        type=float,
+        default=0.5,
+        help="Final dropout rate for ViT model",
+    )
+
     args = parser.parse_args()
 
     if args.mode != "plot_history":
@@ -526,7 +626,12 @@ if __name__ == "__main__":
             )
             exit(1)
     elif args.mode == "train_mag":
-        if args.model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag"]:
+        if args.model_type in [
+            "phasenet_mag",
+            "amag_v2",
+            "eqtransformer_mag",
+            "vit_mag",
+        ]:
             model_params = extract_model_params(args, args.model_type)
             train_magnitude_unified(
                 data, args.model_type, epochs=args.epochs, **model_params
@@ -534,7 +639,7 @@ if __name__ == "__main__":
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
             print(
-                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag"
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag"
             )
             exit(1)
     elif args.mode == "eval_phase":
@@ -556,10 +661,17 @@ if __name__ == "__main__":
         if not args.model_path:
             print("Error: --model_path is required for eval_mag mode")
             exit(1)
-        if args.model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag"]:
+        if args.model_type in [
+            "phasenet_mag",
+            "amag_v2",
+            "eqtransformer_mag",
+            "vit_mag",
+        ]:
             model_params = extract_model_params(args, args.model_type)
-            # Use smaller batch size for EQTransformerMag due to transformer complexity
-            batch_size = 64 if args.model_type == "eqtransformer_mag" else 256
+            # Use smaller batch size for transformer models due to complexity
+            batch_size = (
+                64 if args.model_type in ["eqtransformer_mag", "vit_mag"] else 256
+            )
             evaluate_magnitude_unified(
                 data,
                 args.model_type,
@@ -572,7 +684,7 @@ if __name__ == "__main__":
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
             print(
-                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag"
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag"
             )
             exit(1)
     elif args.mode == "tutorial":

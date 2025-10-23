@@ -22,6 +22,8 @@ from my_project.models.AMAG_v2.train import train_magnitude_net
 from my_project.models.AMAG_v2.evaluate import evaluate_magnitude_net
 from my_project.models.EQTransformer.train import train_eqtransformer_mag
 from my_project.models.EQTransformer.evaluate import evaluate_eqtransformer_mag
+from my_project.models.ViT.train import train_vit_magnitude
+from my_project.models.ViT.evaluate import evaluate_vit_magnitude
 
 # Import model classes for type checking
 from my_project.models.phasenet_mag.model import PhaseNetMag
@@ -29,6 +31,7 @@ from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.EQTransformer.model import EQTransformerMag
+from my_project.models.ViT.model import ViTMagnitudeEstimator
 import seisbench.models as sbm
 
 
@@ -137,7 +140,7 @@ def evaluate_phase_model_unified(
 
 
 def train_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag],
+    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator],
     model_name: str,
     data: BenchmarkDataset,
     epochs: int = 50,
@@ -246,12 +249,47 @@ def train_magnitude_model(
         )
         return {"model_type": "eqtransformer_mag", "results": results}
 
+    elif isinstance(model, ViTMagnitudeEstimator):
+        print(f"Training ViT Magnitude Estimator model")
+
+        # Extract ViT-specific parameters from kwargs
+        gradient_clip = kwargs.get("gradient_clip", 1.0)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 20)
+        warmup_epochs = kwargs.get("warmup_epochs", 10)
+        scheduler_factor = kwargs.get("scheduler_factor", 0.5)
+
+        # Adjust defaults for ViT if not explicitly provided
+        if learning_rate == 1e-3:  # Default learning rate, adjust for ViT
+            learning_rate = 1e-4
+        if batch_size == 256:  # Default batch size, adjust for ViT
+            batch_size = 64
+        if weight_decay == 1e-5:  # Default weight decay, adjust for ViT
+            weight_decay = 1e-2
+
+        results = train_vit_magnitude(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            scheduler_factor=scheduler_factor,
+            save_every=save_every,
+            gradient_clip=gradient_clip,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+        )
+        return {"model_type": "vit_magnitude", "results": results}
+
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")
 
 
 def evaluate_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag],
+    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator],
     model_path: str,
     data: BenchmarkDataset,
     batch_size: int = 256,
@@ -315,6 +353,23 @@ def evaluate_magnitude_model(
             num_examples=num_examples,
         )
         return {"model_type": "eqtransformer_mag", "results": results}
+
+    elif isinstance(model, ViTMagnitudeEstimator):
+        print(f"Evaluating ViT Magnitude Estimator model")
+
+        # Adjust batch size for ViT if using default
+        if batch_size == 256:
+            batch_size = 64
+
+        results = evaluate_vit_magnitude(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "vit_magnitude", "results": results}
 
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")
