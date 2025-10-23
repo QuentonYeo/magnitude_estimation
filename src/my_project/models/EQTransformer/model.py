@@ -17,7 +17,7 @@ class EQTransformerMag(WaveformModel):
     EQTransformer architecture modified for magnitude regression.
 
     This model uses the same encoder-decoder architecture with transformers and LSTM blocks
-    as EQTransformer but outputs a single channel for magnitude prediction instead of 
+    as EQTransformer but outputs a single channel for magnitude prediction instead of
     detection and phase classification channels.
 
     The model predicts magnitude values at each time sample, where the magnitude
@@ -76,6 +76,7 @@ class EQTransformerMag(WaveformModel):
         )
 
         self.in_channels = in_channels
+        self.in_samples = in_samples  # Store for forward method assertion
         self.classes = 1  # Single output for magnitude regression
         self.lstm_blocks = lstm_blocks
         self.drop_rate = drop_rate
@@ -147,7 +148,10 @@ class EQTransformerMag(WaveformModel):
 
     def forward(self, x, logits=False):
         assert x.ndim == 3
-        assert x.shape[1:] == (self.in_channels, self.in_samples)
+        assert x.shape[1:] == (
+            self.in_channels,
+            self.in_samples,
+        ), f"Expected shape (*, {self.in_channels}, {self.in_samples}), got {x.shape}"
 
         # Shared encoder part
         x = self.encoder(x)

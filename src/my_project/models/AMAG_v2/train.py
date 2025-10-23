@@ -25,6 +25,7 @@ def train_magnitude_net(
     save_every: int = 5,
     gradient_clip: Optional[float] = 1.0,
     early_stopping_patience: int = 10,
+    warmup_epochs: int = 5,
 ):
     """
     Train MagnitudeNet model for magnitude regression.
@@ -42,7 +43,8 @@ def train_magnitude_net(
         scheduler_factor: Factor to reduce learning rate by
         save_every: Save model every N epochs
         gradient_clip: Maximum gradient norm (None to disable)
-        device: Device to train on
+        early_stopping_patience: Stop training if no improvement for N epochs
+        warmup_epochs: Number of epochs for learning rate warmup
     """
     print("\n" + "=" * 50)
     print("TRAINING MAGNITUDENET")
@@ -95,8 +97,19 @@ def train_magnitude_net(
     # criterion = nn.L1Loss()  # MAE - more robust to outliers
     # criterion = nn.HuberLoss()  # Robust to outliers
 
-    # Learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    # Learning rate scheduler with warmup (LambdaLR) and ReduceLROnPlateau for decay
+    def warmup_lambda(epoch):
+        # from 10% -> 100% linearly over warmup_epochs
+        if epoch < warmup_epochs:
+            return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
+        return 1.0
+
+    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=warmup_lambda
+    )
+
+    # ReduceLROnPlateau for post-warmup adjustment
+    reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
         factor=scheduler_factor,
@@ -241,8 +254,12 @@ def train_magnitude_net(
         val_losses.append(val_loss)
         val_maes.append(val_mae)
 
-        # Learning rate scheduling
-        scheduler.step(val_loss)
+        # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
+        warmup_scheduler.step()
+
+        # Learning rate scheduling (ReduceLROnPlateau) after warmup
+        if epoch >= warmup_epochs:
+            reduce_scheduler.step(val_loss)
 
         # Check for improvement and early stopping
         if val_loss < best_val_loss:

@@ -42,6 +42,9 @@ uv run python -m src.my_project.main --mode train_phase --model_type phasenet --
 
 # Train a magnitude estimation model
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 20
+
+# Train with custom learning rate, batch size, and warmup
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag --learning_rate 0.002 --batch_size 64 --warmup_epochs 10
 ```
 
 #### Basic Evaluation
@@ -66,6 +69,8 @@ uv run python -m src.my_project.main --help
 ## Model Configuration
 
 All models (except the standard PhaseNet) support configurable parameters that can be set via command line arguments. This allows easy experimentation with different model architectures and capacities.
+
+**Universal Training Parameters for Magnitude Models**: All magnitude models (`phasenet_mag`, `eqtransformer_mag`, `amag_v2`) now support configurable `learning_rate`, `batch_size`, and `warmup_epochs` parameters for optimized training with learning rate warmup scheduling.
 
 ### Available Models and Parameters
 
@@ -123,6 +128,9 @@ uv run python -m src.my_project.main --mode train_phase --model_type phasenet_co
 
 - `--filter_factor` (int, default=1): Controls model capacity
 - `--norm` (str, default="std"): Normalization method ("std" or "peak")
+- `--learning_rate` (float, default=0.001): Learning rate for training
+- `--batch_size` (int, default=32): Batch size for training
+- `--warmup_epochs` (int, default=5): Linear warmup epochs (10% → 100% learning rate)
 
 **Examples:**
 
@@ -130,9 +138,13 @@ uv run python -m src.my_project.main --mode train_phase --model_type phasenet_co
 # Default configuration with standard normalization
 uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag --dataset ETHZ
 
-# High capacity model with peak normalization
+# High capacity model with peak normalization and custom training params
 uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
-       --dataset ETHZ --filter_factor 2 --norm peak
+       --dataset ETHZ --filter_factor 2 --norm peak --learning_rate 0.002 --batch_size 64 --warmup_epochs 10
+
+# Fast training with larger batch and extended warmup
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
+       --dataset ETHZ --batch_size 128 --warmup_epochs 15
 ```
 
 #### 4. EQTransformerMag (`eqtransformer_mag`)
@@ -150,6 +162,9 @@ uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag 
 - `--transformer_nhead` (int, default=8): Number of attention heads
 - `--transformer_num_encoder_layers` (int, default=4): Number of transformer encoder layers
 - `--transformer_dim_feedforward` (int, default=512): Transformer feedforward dimension
+- `--learning_rate` (float, default=0.0001): Learning rate for training (transformer-optimized)
+- `--batch_size` (int, default=16): Batch size for training (transformer-optimized)
+- `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
 
 **Examples:**
 
@@ -157,13 +172,15 @@ uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag 
 # Default configuration (30-second input windows)
 uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag --dataset ETHZ
 
-# High capacity model with larger transformer
+# High capacity model with larger transformer and extended warmup
 uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
-       --dataset ETHZ --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6
+       --dataset ETHZ --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6 \
+       --learning_rate 0.0001 --batch_size 16 --warmup_epochs 10
 
 # Lightweight model with smaller transformer
 uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
-       --dataset ETHZ --transformer_d_model 64 --transformer_nhead 4 --transformer_num_encoder_layers 2
+       --dataset ETHZ --transformer_d_model 64 --transformer_nhead 4 --transformer_num_encoder_layers 2 \
+       --batch_size 32 --warmup_epochs 3
 ```
 
 #### 5. MagnitudeNet (`amag_v2`)
@@ -176,6 +193,9 @@ uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer
 - `--lstm_hidden` (int, default=128): LSTM hidden size
 - `--lstm_layers` (int, default=2): Number of LSTM layers
 - `--dropout` (float, default=0.2): Dropout rate
+- `--learning_rate` (float, default=0.001): Learning rate for training
+- `--batch_size` (int, default=64): Batch size for training
+- `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
 
 **Examples:**
 
@@ -183,13 +203,15 @@ uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer
 # Default configuration
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ
 
-# High capacity model
+# High capacity model with custom training parameters
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
-       --dataset ETHZ --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3
+       --dataset ETHZ --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3 \
+       --learning_rate 0.001 --batch_size 64 --warmup_epochs 8
 
-# Lightweight model
+# Lightweight model with faster training
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
-       --dataset ETHZ --lstm_hidden 64 --lstm_layers 1 --dropout 0.1
+       --dataset ETHZ --lstm_hidden 64 --lstm_layers 1 --dropout 0.1 \
+       --batch_size 128 --warmup_epochs 3
 ```
 
 ### Important Notes
@@ -209,6 +231,11 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 2. **Filter Factor**: The `--filter_factor` parameter is available for all models and is the primary way to control overall model capacity.
 
 3. **Default Values**: All parameters have sensible defaults, so only specify the ones you want to change.
+
+4. **Warmup Scheduling**: All magnitude models now support learning rate warmup for improved training stability:
+   - Learning rate starts at 10% of specified value and linearly increases to 100% over `warmup_epochs`
+   - Helps prevent early overfitting and improves convergence, especially for transformer-based models
+   - Particularly beneficial for complex models and small batch sizes
 
 ## Complete Command Reference
 
@@ -252,6 +279,30 @@ uv run python -m src.my_project.main [OPTIONS]
 | `--model_path` | Path to model file | Any valid path                                                                                    | `""`       | Required for evaluation modes     |
 | `--epochs`     | Training epochs    | Positive integer                                                                                  | `5`        | For training modes only           |
 | `--plot`       | Show/save plots    | Flag (no value)                                                                                   | `False`    | For `eval_mag` and `plot_history` |
+
+### Training Parameters (Magnitude Models Only)
+
+| Argument          | Description                                   | Type  | Default | Notes                                                                    |
+| ----------------- | --------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------ |
+| `--learning_rate` | Learning rate for training                    | float | varies  | Model-specific defaults: EQTransformerMag=0.0001, others=0.001           |
+| `--batch_size`    | Batch size for training                       | int   | varies  | Model-specific defaults: EQTransformerMag=16, PhaseNetMag=32, AMAG_v2=64 |
+| `--warmup_epochs` | Number of warmup epochs with linear LR warmup | int   | 5       | Learning rate starts at 10% and linearly increases to 100%               |
+
+**Examples:**
+
+```bash
+# Train with custom learning rate and batch size
+uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
+       --learning_rate 0.002 --batch_size 64 --warmup_epochs 10
+
+# Train EQTransformerMag with optimized parameters
+uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
+       --learning_rate 0.0001 --batch_size 16 --warmup_epochs 5
+
+# Train AMAG_v2 with stability warmup
+uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
+       --learning_rate 0.001 --batch_size 64 --warmup_epochs 3
+```
 
 ### Model Configuration Arguments
 
@@ -371,26 +422,29 @@ uv run python -m src.my_project.main --mode train_phase --model_type phasenet_co
 #### Magnitude Model Training
 
 ```bash
-# Train PhaseNetMag with default parameters
+# Train PhaseNetMag with default parameters and warmup
 uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag --dataset ETHZ --epochs 40
 
-# Train PhaseNetMag with peak normalization and higher capacity
+# Train PhaseNetMag with custom training parameters and warmup
 uv run python -m src.my_project.main --mode train_mag --model_type phasenet_mag \
-       --dataset ETHZ --epochs 50 --filter_factor 2 --norm peak
+       --dataset ETHZ --epochs 50 --filter_factor 2 --norm peak \
+       --learning_rate 0.002 --batch_size 64 --warmup_epochs 10
 
 # Train EQTransformerMag with default parameters (30-second windows)
 uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag --dataset ETHZ --epochs 50
 
-# Train EQTransformerMag with larger transformer configuration
+# Train EQTransformerMag with transformer-optimized parameters
 uv run python -m src.my_project.main --mode train_mag --model_type eqtransformer_mag \
-       --dataset ETHZ --epochs 50 --transformer_d_model 256 --transformer_nhead 16 --transformer_num_encoder_layers 6
+       --dataset ETHZ --epochs 50 --transformer_d_model 256 --transformer_nhead 16 \
+       --transformer_num_encoder_layers 6 --learning_rate 0.0001 --batch_size 16 --warmup_epochs 8
 
 # Train AMAG_v2 (MagnitudeNet) with default parameters
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dataset ETHZ --epochs 50
 
-# Train AMAG_v2 with high capacity configuration
+# Train AMAG_v2 with high capacity and stability warmup
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
-       --dataset ETHZ --epochs 50 --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3
+       --dataset ETHZ --epochs 50 --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 \
+       --dropout 0.3 --learning_rate 0.001 --batch_size 64 --warmup_epochs 5
 ```
 
 #### Phase Model Evaluation

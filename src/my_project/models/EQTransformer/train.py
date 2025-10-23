@@ -113,16 +113,20 @@ def train_eqtransformer_mag(
     # criterion = nn.HuberLoss()  # Smooth L1 loss
     # criterion = nn.SmoothL1Loss()  # Another robust option
 
-    # Learning rate scheduler with warmup
-    def lr_lambda(epoch):
-        if epoch < warmup_epochs:
-            # Linear warmup: start from small value (0.1) and increase to 1.0
-            return 0.1 + (0.9 * epoch / warmup_epochs)
-        else:
-            # Standard decay handled by ReduceLROnPlateau
-            return 1.0
+    # Learning rate scheduler with warmup (LambdaLR) and ReduceLROnPlateau for decay
+    base_lr = learning_rate
 
-    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    def warmup_lambda(epoch):
+        # from 10% -> 100% linearly over warmup_epochs
+        if epoch < warmup_epochs:
+            return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
+        return 1.0
+
+    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=warmup_lambda
+    )
+
+    # ReduceLROnPlateau for post-warmup adjustment (called after validation)
     reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -250,14 +254,17 @@ def train_eqtransformer_mag(
     for epoch in range(epochs):
         print(f"\n{'='*60}")
         print(f"Epoch {epoch + 1}/{epochs}")
-        print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.2e}")
+
+        # Report current learning rate (LambdaLR controls warmup)
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"Learning Rate: {current_lr:.2e}")
         print(f"{'='*60}")
 
         # Train
         train_loss, train_mae = train_loop(train_loader, epoch)
         train_losses.append(train_loss)
         train_maes.append(train_mae)
-        learning_rates.append(optimizer.param_groups[0]["lr"])
+        learning_rates.append(current_lr)
 
         print(f"\nTraining Results:")
         print(f"  Avg Loss (MSE): {train_loss:.6f}")
@@ -269,11 +276,11 @@ def train_eqtransformer_mag(
         val_losses.append(val_loss)
         val_maes.append(val_mae)
 
-        # Update learning rate (after training and validation)
-        if epoch < warmup_epochs:
-            warmup_scheduler.step()
-        else:
-            # Learning rate scheduling (after warmup)
+        # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
+        warmup_scheduler.step()
+
+        # Learning rate scheduling (ReduceLROnPlateau) after warmup
+        if epoch >= warmup_epochs:
             reduce_scheduler.step(val_loss)
 
         # Check for improvement and early stopping

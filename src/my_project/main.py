@@ -37,6 +37,13 @@ def extract_model_params(args, model_type):
     if hasattr(args, "early_stopping_patience") and args.early_stopping_patience != 10:
         params["early_stopping_patience"] = args.early_stopping_patience
 
+    # Universal training parameters for magnitude models
+    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag"]:
+        if hasattr(args, "learning_rate") and args.learning_rate is not None:
+            params["learning_rate"] = args.learning_rate
+        if hasattr(args, "batch_size") and args.batch_size is not None:
+            params["batch_size"] = args.batch_size
+
     # PhaseNetLSTM specific parameters
     if model_type == "phasenet_lstm":
         if hasattr(args, "lstm_hidden_size") and args.lstm_hidden_size is not None:
@@ -73,6 +80,9 @@ def extract_model_params(args, model_type):
             params["drop_rate"] = args.drop_rate
         if hasattr(args, "norm") and args.norm != "std":
             params["norm"] = args.norm
+        # EQTransformerMag-specific training parameters
+        if hasattr(args, "warmup_epochs") and args.warmup_epochs != 5:
+            params["warmup_epochs"] = args.warmup_epochs
 
     return params
 
@@ -218,19 +228,21 @@ def train_magnitude_unified(
     model = create_magnitude_model(model_type, **kwargs)
     model_name = get_model_name(model_type, data.name, **kwargs)
 
-    # Set model-specific defaults
+    # Set model-specific defaults for learning_rate and batch_size if not provided by user
     if model_type == "phasenet_mag":
-        learning_rate = kwargs.get("learning_rate", 1e-4)
+        learning_rate = kwargs.pop("learning_rate", 1e-4)
+        batch_size = kwargs.pop("batch_size", 256)
         optimizer_name = kwargs.get("optimizer_name", "Adam")
     elif model_type == "eqtransformer_mag":
-        learning_rate = kwargs.get("learning_rate", 1e-4)  # Lower LR for transformers
+        learning_rate = kwargs.pop("learning_rate", 1e-4)  # Lower LR for transformers
+        batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
         optimizer_name = kwargs.get("optimizer_name", "AdamW")
-        kwargs.setdefault("batch_size", 64)  # Smaller batch for memory efficiency
         kwargs.setdefault("scheduler_factor", 0.5)
         kwargs.setdefault("gradient_clip", 1.0)
         kwargs.setdefault("warmup_epochs", 5)  # Transformer warmup
     else:  # amag_v2
-        learning_rate = kwargs.get("learning_rate", 1e-3)
+        learning_rate = kwargs.pop("learning_rate", 1e-3)
+        batch_size = kwargs.pop("batch_size", 256)
         optimizer_name = kwargs.get("optimizer_name", "AdamW")
         kwargs.setdefault("scheduler_factor", 0.5)
         kwargs.setdefault("gradient_clip", 1.0)
@@ -241,6 +253,7 @@ def train_magnitude_unified(
         data=data,
         learning_rate=learning_rate,
         epochs=epochs,
+        batch_size=batch_size,
         optimizer_name=optimizer_name,
         **kwargs,
     )
@@ -385,6 +398,18 @@ if __name__ == "__main__":
         "--epochs", type=int, default=5, help="Number of epochs for training"
     )
     parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=None,
+        help="Learning rate for training (default varies by model type)",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=None,
+        help="Batch size for training (default varies by model type)",
+    )
+    parser.add_argument(
         "--plot",
         action="store_true",
         help="Display plots on screen and save PNG files (for eval_mag and plot_history modes)",
@@ -457,6 +482,14 @@ if __name__ == "__main__":
         type=int,
         default=10,
         help="Stop training if no improvement for N epochs",
+    )
+
+    # EQTransformerMag specific training parameters
+    parser.add_argument(
+        "--warmup_epochs",
+        type=int,
+        default=5,
+        help="Number of warmup epochs for EQTransformerMag learning rate scheduler",
     )
 
     args = parser.parse_args()

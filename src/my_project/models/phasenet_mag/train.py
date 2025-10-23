@@ -21,6 +21,7 @@ def train_phasenet_mag(
     scheduler_patience=5,
     save_every=5,
     early_stopping_patience=10,
+    warmup_epochs=5,
 ):
     """
     Train PhaseNetMag model for magnitude regression.
@@ -37,6 +38,7 @@ def train_phasenet_mag(
         scheduler_patience: Patience for learning rate scheduler
         save_every: Save model every N epochs
         early_stopping_patience: Stop training if no improvement for N epochs
+        warmup_epochs: Number of epochs for learning rate warmup
     """
     print("\n" + "=" * 50)
     print("TRAINING")
@@ -65,9 +67,20 @@ def train_phasenet_mag(
 
     criterion = nn.MSELoss()  # Mean Squared Error for regression
 
-    # Learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=scheduler_patience
+    # Learning rate scheduler with warmup (LambdaLR) and ReduceLROnPlateau for decay
+    def warmup_lambda(epoch):
+        # from 10% -> 100% linearly over warmup_epochs
+        if epoch < warmup_epochs:
+            return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
+        return 1.0
+
+    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=warmup_lambda
+    )
+
+    # ReduceLROnPlateau for post-warmup adjustment
+    reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=scheduler_patience, verbose=True
     )
 
     def train_loop(dataloader):
@@ -155,8 +168,12 @@ def train_phasenet_mag(
         val_loss = validation_loop(dev_loader)
         val_losses.append(val_loss)
 
-        # Learning rate scheduling
-        scheduler.step(val_loss)
+        # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
+        warmup_scheduler.step()
+
+        # Learning rate scheduling (ReduceLROnPlateau) after warmup
+        if epoch >= warmup_epochs:
+            reduce_scheduler.step(val_loss)
 
         # Check for improvement and early stopping
         if val_loss < best_val_loss:

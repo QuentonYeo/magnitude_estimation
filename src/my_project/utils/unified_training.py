@@ -153,7 +153,7 @@ def train_magnitude_model(
     Unified training function for magnitude-based models (PhaseNetMag, AMAG_v2, EQTransformerMag).
 
     Args:
-        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, or EQTransformerMag)
+        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag)
         model_name: Name for saving model checkpoints
         data: Dataset to train on
         epochs: Number of training epochs
@@ -176,6 +176,7 @@ def train_magnitude_model(
         print(f"Training PhaseNetMag model")
 
         early_stopping_patience = kwargs.get("early_stopping_patience", 10)
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
 
         results = train_phasenet_mag(
             model_name=model_name,
@@ -189,6 +190,7 @@ def train_magnitude_model(
             scheduler_patience=scheduler_patience,
             save_every=save_every,
             early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
         )
         return {"model_type": "phasenet_mag", "results": results}
 
@@ -198,6 +200,7 @@ def train_magnitude_model(
         # Extract AMAG-specific parameters from kwargs
         scheduler_factor = kwargs.get("scheduler_factor", 0.5)
         gradient_clip = kwargs.get("gradient_clip", 1.0)
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
 
         results = train_magnitude_net(
             model_name=model_name,
@@ -212,6 +215,7 @@ def train_magnitude_model(
             scheduler_factor=scheduler_factor,
             save_every=save_every,
             gradient_clip=gradient_clip,
+            warmup_epochs=warmup_epochs,
         )
         return {"model_type": "magnitude_net", "results": results}
 
@@ -253,13 +257,12 @@ def evaluate_magnitude_model(
     batch_size: int = 256,
     plot_examples: bool = False,
     num_examples: int = 5,
-    **kwargs,
 ) -> Dict[str, Any]:
     """
     Unified evaluation function for magnitude-based models.
 
     Args:
-        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, or EQTransformerMag)
+        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag)
         model_path: Path to trained model weights
         data: Dataset to evaluate on
         batch_size: Batch size for evaluation
