@@ -307,21 +307,21 @@ uv run python -m src.my_project.main [OPTIONS]
 
 ### Core Arguments
 
-| Argument       | Description        | Choices                                                                                           | Default    | Notes                             |
-| -------------- | ------------------ | ------------------------------------------------------------------------------------------------- | ---------- | --------------------------------- |
-| `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                                              | `ETHZ`     |                                   |
+| Argument       | Description        | Choices                                                                                                      | Default    | Notes                             |
+| -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ | ---------- | --------------------------------- |
+| `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                                                         | `ETHZ`     |                                   |
 | `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2` | `phasenet` |                                   |
-| `--model_path` | Path to model file | Any valid path                                                                                    | `""`       | Required for evaluation modes     |
-| `--epochs`     | Training epochs    | Positive integer                                                                                  | `5`        | For training modes only           |
-| `--plot`       | Show/save plots    | Flag (no value)                                                                                   | `False`    | For `eval_mag` and `plot_history` |
+| `--model_path` | Path to model file | Any valid path                                                                                               | `""`       | Required for evaluation modes     |
+| `--epochs`     | Training epochs    | Positive integer                                                                                             | `5`        | For training modes only           |
+| `--plot`       | Show/save plots    | Flag (no value)                                                                                              | `False`    | For `eval_mag` and `plot_history` |
 
 ### Training Parameters (Magnitude Models Only)
 
-| Argument          | Description                                   | Type  | Default | Notes                                                                    |
-| ----------------- | --------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------ |
+| Argument          | Description                                   | Type  | Default | Notes                                                                           |
+| ----------------- | --------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------------- |
 | `--learning_rate` | Learning rate for training                    | float | varies  | Model-specific defaults: EQTransformerMag/ViTMag=0.0001, others=0.001           |
 | `--batch_size`    | Batch size for training                       | int   | varies  | Model-specific defaults: EQTransformerMag=16, PhaseNetMag=32, ViTMag/AMAG_v2=64 |
-| `--warmup_epochs` | Number of warmup epochs with linear LR warmup | int   | 5       | Learning rate starts at 10% and linearly increases to 100%               |
+| `--warmup_epochs` | Number of warmup epochs with linear LR warmup | int   | 5       | Learning rate starts at 10% and linearly increases to 100%                      |
 
 **Examples:**
 
@@ -387,15 +387,15 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 
 #### ViTMagnitudeEstimator Parameters
 
-| Argument                    | Description                             | Type  | Default | Notes                  |
-| --------------------------- | --------------------------------------- | ----- | ------- | ---------------------- |
-| `--patch_size`              | Patch size for transformer processing  | int   | 5       |                        |
-| `--embed_dim`               | Embedding dimension for transformer     | int   | 100     |                        |
-| `--num_transformer_blocks`  | Number of transformer encoder blocks    | int   | 4       |                        |
-| `--num_heads`               | Number of attention heads               | int   | 4       |                        |
-| `--dropout`                 | Dropout rate in transformer blocks     | float | 0.1     |                        |
-| `--final_dropout`           | Final dropout rate before regression   | float | 0.5     |                        |
-| `--norm`                    | Normalization method                    | str   | "std"   | Choices: "std", "peak" |
+| Argument                   | Description                           | Type  | Default | Notes                  |
+| -------------------------- | ------------------------------------- | ----- | ------- | ---------------------- |
+| `--patch_size`             | Patch size for transformer processing | int   | 5       |                        |
+| `--embed_dim`              | Embedding dimension for transformer   | int   | 100     |                        |
+| `--num_transformer_blocks` | Number of transformer encoder blocks  | int   | 4       |                        |
+| `--num_heads`              | Number of attention heads             | int   | 4       |                        |
+| `--dropout`                | Dropout rate in transformer blocks    | float | 0.1     |                        |
+| `--final_dropout`          | Final dropout rate before regression  | float | 0.5     |                        |
+| `--norm`                   | Normalization method                  | str   | "std"   | Choices: "std", "peak" |
 
 #### MagnitudeNet (AMAG v2) Parameters
 
