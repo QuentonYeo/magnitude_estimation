@@ -421,7 +421,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         default="ETHZ",
-        choices=["ETHZ", "STEAD", "GEOFON", "MLAAPDE"],
+        choices=["ETHZ", "STEAD", "GEOFON", "MLAAPDE", "LENDB", "TXED"],
         help="Dataset to use",
     )
     parser.add_argument(
@@ -606,7 +606,11 @@ if __name__ == "__main__":
         elif args.dataset == "GEOFON":
             data = sbd.GEOFON(sampling_rate=100)
         elif args.dataset == "MLAAPDE":
-            data = sbd.MLAAPDE(sampline_rate=100)
+            data = sbd.MLAAPDE(sampling_rate=100)
+        elif args.dataset == "LENDB":
+            data = sbd.LENDB(sampling_rate=100)
+        elif args.dataset == "TXED":
+            data = sbd.TXED(sampling_rate=100)
         else:
             raise ValueError(f"Unknown dataset: {args.dataset}")
 
