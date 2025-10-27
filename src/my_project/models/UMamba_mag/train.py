@@ -7,17 +7,17 @@ import torch.nn as nn
 import seisbench.data as sbd
 from seisbench.models.base import WaveformModel
 
-from my_project.models.EQTransformer.model import EQTransformerMag
+from my_project.models.UMamba_mag.model import UMambaMag
 from my_project.loaders import data_loader as dl
 
 
-def train_eqtransformer_mag(
+def train_umamba_mag(
     model_name: str,
     model: WaveformModel,
     data: sbd.BenchmarkDataset,
     learning_rate: float = 1e-3,
     epochs: int = 50,
-    batch_size: int = 128,  # Smaller batch size due to transformer complexity
+    batch_size: int = 64,  # Smaller batch size due to Mamba complexity
     optimizer_name: str = "AdamW",
     weight_decay: float = 1e-5,
     scheduler_patience: int = 5,
@@ -25,18 +25,18 @@ def train_eqtransformer_mag(
     save_every: int = 5,
     gradient_clip: Optional[float] = 1.0,
     early_stopping_patience: int = 10,
-    warmup_epochs: int = 5,  # Transformer benefits from warmup
+    warmup_epochs: int = 5,
 ):
     """
-    Train EQTransformerMag model for magnitude regression.
+    Train UMambaMag model for magnitude regression.
 
     Args:
         model_name: Name for saving model checkpoints
-        model: EQTransformerMag model instance
+        model: UMambaMag model instance
         data: Dataset to train on
         learning_rate: Learning rate for optimizer
         epochs: Number of training epochs
-        batch_size: Batch size for training (smaller for transformers)
+        batch_size: Batch size for training (smaller for Mamba)
         optimizer_name: Optimizer type ("Adam", "AdamW", or "SGD")
         weight_decay: Weight decay for optimizer
         scheduler_patience: Patience for learning rate scheduler
@@ -47,7 +47,7 @@ def train_eqtransformer_mag(
         warmup_epochs: Number of epochs for learning rate warmup
     """
     print("\n" + "=" * 60)
-    print("TRAINING EQTRANSFORMERMAG")
+    print("TRAINING UMAMBAMAG")
     print("=" * 60)
     print(f"Model: {model_name}")
     print(f"Dataset: {data.__class__.__name__}")
@@ -58,7 +58,6 @@ def train_eqtransformer_mag(
     print("=" * 60)
 
     # Move model to device
-   # model.to_preferred_device(verbose=True)
     model.to("cuda:1")
     # Get the actual device where the model ended up
     device = next(model.parameters()).device
@@ -108,16 +107,11 @@ def train_eqtransformer_mag(
     # Loss function - MSE for regression
     criterion = nn.MSELoss()
 
-    # Alternative loss functions for different objectives:
-    # criterion = nn.L1Loss()  # MAE - more robust to outliers
-    # criterion = nn.HuberLoss()  # Smooth L1 loss
-    # criterion = nn.SmoothL1Loss()  # Another robust option
-
-    # Learning rate scheduler with warmup (LambdaLR) and ReduceLROnPlateau for decay
+    # Learning rate scheduler with warmup and decay
     base_lr = learning_rate
 
     def warmup_lambda(epoch):
-        # from 10% -> 100% linearly over warmup_epochs
+        # Warmup from 10% to 100% linearly over warmup_epochs
         if epoch < warmup_epochs:
             return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
         return 1.0
@@ -126,7 +120,7 @@ def train_eqtransformer_mag(
         optimizer, lr_lambda=warmup_lambda
     )
 
-    # ReduceLROnPlateau for post-warmup adjustment (called after validation)
+    # ReduceLROnPlateau for post-warmup adjustment
     reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -145,19 +139,17 @@ def train_eqtransformer_mag(
         for batch_id, batch in enumerate(dataloader):
             # Get input and target
             x = batch["X"].to(device)
-            y_true = batch["magnitude"].to(device)  # Target magnitudes
+            y_true = batch["magnitude"].to(device)
 
             # Handle different target shapes
             if y_true.dim() == 1:
-                # If shape is (batch,), expand to (batch, samples)
                 y_true = y_true.unsqueeze(1).expand(-1, x.shape[-1])
             elif y_true.dim() == 2 and y_true.shape[1] == 1:
-                # If shape is (batch, 1), expand to (batch, samples)
                 y_true = y_true.expand(-1, x.shape[-1])
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
-            y_pred = model(x_preproc)  # Shape: (batch, samples)
+            y_pred = model(x_preproc)
 
             # Calculate loss
             loss = criterion(y_pred, y_true)
@@ -166,7 +158,7 @@ def train_eqtransformer_mag(
             optimizer.zero_grad()
             loss.backward()
 
-            # Gradient clipping (important for transformers)
+            # Gradient clipping
             if gradient_clip is not None:
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), gradient_clip
@@ -255,7 +247,7 @@ def train_eqtransformer_mag(
         print(f"\n{'='*60}")
         print(f"Epoch {epoch + 1}/{epochs}")
 
-        # Report current learning rate (LambdaLR controls warmup)
+        # Report current learning rate
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"Learning Rate: {current_lr:.2e}")
         print(f"{'='*60}")
@@ -276,10 +268,10 @@ def train_eqtransformer_mag(
         val_losses.append(val_loss)
         val_maes.append(val_mae)
 
-        # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
+        # Step warmup scheduler
         warmup_scheduler.step()
 
-        # Learning rate scheduling (ReduceLROnPlateau) after warmup
+        # Step reduce scheduler after warmup
         if epoch >= warmup_epochs:
             reduce_scheduler.step(val_loss)
 
@@ -303,6 +295,7 @@ def train_eqtransformer_mag(
                         "optimizer": optimizer_name,
                         "weight_decay": weight_decay,
                         "scheduler_patience": scheduler_patience,
+                        "scheduler_factor": scheduler_factor,
                         "gradient_clip": gradient_clip,
                         "early_stopping_patience": early_stopping_patience,
                         "warmup_epochs": warmup_epochs,
@@ -341,6 +334,7 @@ def train_eqtransformer_mag(
                         "optimizer": optimizer_name,
                         "weight_decay": weight_decay,
                         "scheduler_patience": scheduler_patience,
+                        "scheduler_factor": scheduler_factor,
                         "gradient_clip": gradient_clip,
                         "early_stopping_patience": early_stopping_patience,
                         "warmup_epochs": warmup_epochs,
@@ -367,6 +361,7 @@ def train_eqtransformer_mag(
                 "optimizer": optimizer_name,
                 "weight_decay": weight_decay,
                 "scheduler_patience": scheduler_patience,
+                "scheduler_factor": scheduler_factor,
                 "gradient_clip": gradient_clip,
                 "early_stopping_patience": early_stopping_patience,
                 "warmup_epochs": warmup_epochs,
@@ -392,6 +387,7 @@ def train_eqtransformer_mag(
             "optimizer": optimizer_name,
             "weight_decay": weight_decay,
             "scheduler_patience": scheduler_patience,
+            "scheduler_factor": scheduler_factor,
             "gradient_clip": gradient_clip,
             "early_stopping_patience": early_stopping_patience,
             "warmup_epochs": warmup_epochs,
@@ -421,7 +417,7 @@ def load_checkpoint(
     Load a saved checkpoint.
 
     Args:
-        model: EQTransformerMag model instance
+        model: UMambaMag model instance
         checkpoint_path: Path to checkpoint file
         optimizer: Optional optimizer to load state
         device: Device to load model on
@@ -447,30 +443,36 @@ def load_checkpoint(
 if __name__ == "__main__":
 
     # Initialize model
-    model = EQTransformerMag(
+    model = UMambaMag(
         in_channels=3,
-        in_samples=3001,  # 30 seconds at 100Hz
         sampling_rate=100,
-        lstm_blocks=3,
-        drop_rate=0.1,
         norm="std",
+        n_stages=4,
+        features_per_stage=[8, 16, 32, 64],
+        kernel_size=7,
+        strides=[2, 2, 2, 2],
+        n_blocks_per_stage=2,
+        n_conv_per_stage_decoder=2,
+        deep_supervision=False,
     )
 
     # Load dataset
     data = sbd.ETHZ(sampling_rate=100)
 
     # Train model
-    history = train_eqtransformer_mag(
-        model_name="eqtransformermag_v1",
+    history = train_umamba_mag(
+        model_name="umambamag_v1",
         model=model,
         data=data,
-        learning_rate=1e-4,  # Lower LR for transformers
+        learning_rate=1e-3,
         epochs=50,
-        batch_size=64,  # Smaller batch size for memory efficiency
+        batch_size=64,
         optimizer_name="AdamW",
         weight_decay=1e-5,
         scheduler_patience=7,
+        scheduler_factor=0.5,
         save_every=5,
         gradient_clip=1.0,
+        early_stopping_patience=10,
         warmup_epochs=5,
     )

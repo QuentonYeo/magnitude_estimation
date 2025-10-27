@@ -24,10 +24,13 @@ from my_project.models.EQTransformer.train import train_eqtransformer_mag
 from my_project.models.EQTransformer.evaluate import evaluate_eqtransformer_mag
 from my_project.models.ViT.train import train_vit_magnitude
 from my_project.models.ViT.evaluate import evaluate_vit_magnitude
+from my_project.models.UMamba_mag.train import train_umamba_mag
+from my_project.models.UMamba_mag.evaluate import evaluate_umamba_mag
 
 # Import model classes for type checking
 from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.AMAG_v2.model import MagnitudeNet
+from my_project.models.UMamba_mag.model import UMambaMag
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.EQTransformer.model import EQTransformerMag
@@ -140,7 +143,7 @@ def evaluate_phase_model_unified(
 
 
 def train_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator],
+    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag],
     model_name: str,
     data: BenchmarkDataset,
     epochs: int = 50,
@@ -153,10 +156,10 @@ def train_magnitude_model(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Unified training function for magnitude-based models (PhaseNetMag, AMAG_v2, EQTransformerMag).
+    Unified training function for magnitude-based models (PhaseNetMag, AMAG_v2, EQTransformerMag, ViT, UMamba).
 
     Args:
-        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag)
+        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag)
         model_name: Name for saving model checkpoints
         data: Dataset to train on
         epochs: Number of training epochs
@@ -172,8 +175,8 @@ def train_magnitude_model(
         Dictionary containing training history and results
     """
     # Ensure model is on the correct device
-    model.to_preferred_device(verbose=True)
-
+    # model.to_preferred_device(verbose=True)
+    model.to("cuda:1")
     # Route to appropriate training function based on model type
     if isinstance(model, PhaseNetMag):
         print(f"Training PhaseNetMag model")
@@ -284,12 +287,45 @@ def train_magnitude_model(
         )
         return {"model_type": "vit_magnitude", "results": results}
 
+    elif isinstance(model, UMambaMag):
+        print(f"Training UMamba Magnitude Estimator model")
+
+        # Extract UMamba-specific parameters from kwargs
+        gradient_clip = kwargs.get("gradient_clip", 1.0)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 10)
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
+        scheduler_factor = kwargs.get("scheduler_factor", 0.5)
+
+        # Adjust defaults for UMamba if not explicitly provided
+        if learning_rate == 1e-3:  # Default learning rate, adjust for UMamba
+            learning_rate = 1e-3  # Keep default
+        if batch_size == 256:  # Default batch size, adjust for UMamba
+            batch_size = 64  # Smaller batch size due to Mamba complexity
+
+        results = train_umamba_mag(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            scheduler_factor=scheduler_factor,
+            save_every=save_every,
+            gradient_clip=gradient_clip,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+        )
+        return {"model_type": "umamba_mag", "results": results}
+
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")
 
 
 def evaluate_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator],
+    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag],
     model_path: str,
     data: BenchmarkDataset,
     batch_size: int = 256,
@@ -300,7 +336,7 @@ def evaluate_magnitude_model(
     Unified evaluation function for magnitude-based models.
 
     Args:
-        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag)
+        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag)
         model_path: Path to trained model weights
         data: Dataset to evaluate on
         batch_size: Batch size for evaluation
@@ -312,8 +348,8 @@ def evaluate_magnitude_model(
         Dictionary containing evaluation results
     """
     # Ensure model is on the correct device
-    model.to_preferred_device(verbose=True)
-
+    # model.to_preferred_device(verbose=True)
+    model.to("cuda:1")
     # Route to appropriate evaluation function based on model type
     if isinstance(model, PhaseNetMag):
         print(f"Evaluating PhaseNetMag model")
@@ -370,6 +406,23 @@ def evaluate_magnitude_model(
             num_examples=num_examples,
         )
         return {"model_type": "vit_magnitude", "results": results}
+
+    elif isinstance(model, UMambaMag):
+        print(f"Evaluating UMamba Magnitude Estimator model")
+
+        # Adjust batch size for UMamba if using default
+        if batch_size == 256:
+            batch_size = 64
+
+        results = evaluate_umamba_mag(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "umamba_mag", "results": results}
 
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")

@@ -3,6 +3,8 @@ import argparse
 import seisbench.data as sbd
 import seisbench.models as sbm
 from seisbench.data import BenchmarkDataset
+import seisbench
+seisbench.use_backup_repository()
 
 from my_project.tutorial.tutorial import (
     test_load_data,
@@ -16,6 +18,7 @@ from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.EQTransformer.model import EQTransformerMag
 from my_project.models.ViT.model import ViTMagnitudeEstimator
+from my_project.models.UMamba_mag.model import UMambaMag
 
 # Import unified training and inference functions
 from my_project.utils.unified_training import (
@@ -39,7 +42,7 @@ def extract_model_params(args, model_type):
         params["early_stopping_patience"] = args.early_stopping_patience
 
     # Universal training parameters for magnitude models
-    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag", "vit_mag"]:
+    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag", "vit_mag", "umamba_mag"]:
         if hasattr(args, "learning_rate") and args.learning_rate is not None:
             params["learning_rate"] = args.learning_rate
         if hasattr(args, "batch_size") and args.batch_size is not None:
@@ -99,6 +102,19 @@ def extract_model_params(args, model_type):
             params["dropout"] = args.dropout
         if hasattr(args, "final_dropout") and args.final_dropout != 0.5:
             params["final_dropout"] = args.final_dropout
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
+
+    # UMamba specific parameters
+    elif model_type == "umamba_mag":
+        if hasattr(args, "n_stages") and args.n_stages != 4:
+            params["n_stages"] = args.n_stages
+        if hasattr(args, "kernel_size") and args.kernel_size != 7:
+            params["kernel_size"] = args.kernel_size
+        if hasattr(args, "n_blocks_per_stage") and args.n_blocks_per_stage != 2:
+            params["n_blocks_per_stage"] = args.n_blocks_per_stage
+        if hasattr(args, "deep_supervision") and args.deep_supervision:
+            params["deep_supervision"] = args.deep_supervision
         if hasattr(args, "norm") and args.norm != "std":
             params["norm"] = args.norm
 
@@ -214,6 +230,31 @@ def create_magnitude_model(model_type: str, **kwargs):
             final_dropout=final_dropout,
             norm=norm,
         )
+    elif model_type == "umamba_mag":
+        # Extract UMamba-specific parameters with defaults
+        n_stages = kwargs.get("n_stages", 4)
+        features_per_stage = kwargs.get("features_per_stage", [8, 16, 32, 64])
+        kernel_size = kwargs.get("kernel_size", 7)
+        strides = kwargs.get("strides", [2, 2, 2, 2])
+        n_blocks_per_stage = kwargs.get("n_blocks_per_stage", 2)
+        n_conv_per_stage_decoder = kwargs.get("n_conv_per_stage_decoder", 2)
+        deep_supervision = kwargs.get("deep_supervision", False)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return UMambaMag(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            norm=norm,
+            n_stages=n_stages,
+            features_per_stage=features_per_stage,
+            kernel_size=kernel_size,
+            strides=strides,
+            n_blocks_per_stage=n_blocks_per_stage,
+            n_conv_per_stage_decoder=n_conv_per_stage_decoder,
+            deep_supervision=deep_supervision,
+        )
     else:
         raise ValueError(f"Unknown magnitude model type: {model_type}")
 
@@ -242,6 +283,8 @@ def get_model_name(model_type: str, data_name: str, **kwargs):
         return f"EQTransformerMag_{data_name}"
     elif model_type == "vit_mag":
         return f"ViTMag_{data_name}"
+    elif model_type == "umamba_mag":
+        return f"UMambaMag_{data_name}"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -459,6 +502,7 @@ if __name__ == "__main__":
             "amag_v2",
             "eqtransformer_mag",
             "vit_mag",
+            "umamba_mag",
         ],
         help="Model type to use",
     )
@@ -592,6 +636,31 @@ if __name__ == "__main__":
         help="Final dropout rate for ViT model",
     )
 
+    # UMamba model arguments
+    parser.add_argument(
+        "--n_stages",
+        type=int,
+        default=4,
+        help="Number of encoder/decoder stages for UMamba model",
+    )
+    parser.add_argument(
+        "--kernel_size",
+        type=int,
+        default=7,
+        help="Kernel size for convolutions in UMamba model",
+    )
+    parser.add_argument(
+        "--n_blocks_per_stage",
+        type=int,
+        default=2,
+        help="Number of residual blocks per stage in UMamba model",
+    )
+    parser.add_argument(
+        "--deep_supervision",
+        action="store_true",
+        help="Enable deep supervision for UMamba model",
+    )
+
     args = parser.parse_args()
 
     if args.mode != "plot_history":
@@ -635,6 +704,7 @@ if __name__ == "__main__":
             "amag_v2",
             "eqtransformer_mag",
             "vit_mag",
+            "umamba_mag"
         ]:
             model_params = extract_model_params(args, args.model_type)
             train_magnitude_unified(
@@ -643,7 +713,7 @@ if __name__ == "__main__":
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
             print(
-                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag"
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag, umamba_mag"
             )
             exit(1)
     elif args.mode == "eval_phase":

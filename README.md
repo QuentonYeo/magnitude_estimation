@@ -249,6 +249,52 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
        --batch_size 128 --warmup_epochs 3
 ```
 
+#### 7. UMambaMag (`umamba_mag`)
+
+**Description**: U-Net architecture with Mamba (state space model) layers for magnitude estimation. Combines residual blocks for local feature extraction with Mamba layers for long-range temporal dependency modeling. Efficient linear-time complexity for processing long seismic waveforms.
+
+**Configurable Parameters:**
+
+- `--n_stages` (int, default=4): Number of encoder/decoder stages
+- `--kernel_size` (int, default=7): Kernel size for convolutions
+- `--n_blocks_per_stage` (int, default=2): Number of residual blocks per stage
+- `--deep_supervision` (flag, default=False): Enable multi-scale supervision
+- `--norm` (str, default="std"): Normalization method ("std" or "peak")
+- `--learning_rate` (float, default=0.001): Learning rate for training
+- `--batch_size` (int, default=64): Batch size for training (smaller due to Mamba complexity)
+- `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
+
+**Examples:**
+
+```bash
+# Default configuration (compact model with 227K parameters)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag --dataset GEOFON --epochs 50
+
+# High capacity model with more stages
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
+       --dataset ETHZ --n_stages 5 --n_blocks_per_stage 3 --kernel_size 9 \
+       --learning_rate 0.001 --batch_size 32 --warmup_epochs 8
+
+# Lightweight model for faster training
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
+       --dataset ETHZ --n_stages 3 --n_blocks_per_stage 1 --kernel_size 5 \
+       --batch_size 128 --warmup_epochs 3
+
+# With deep supervision for multi-scale training
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
+       --dataset ETHZ --deep_supervision --learning_rate 0.0005 --batch_size 64
+
+# Evaluation
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag \
+       --dataset GEOFON --model_path path/to/model_best.pt --plot
+```
+
+**Key Features:**
+- **Mamba State Space Models**: O(N) complexity for long-range dependencies (vs O(N²) for attention)
+- **Residual U-Net Structure**: Multi-scale features with skip connections
+- **Efficient Training**: Smaller batch sizes recommended due to Mamba's memory footprint
+- **Linear Complexity**: Can process very long seismic sequences efficiently
+
 ### Important Notes
 
 1. **Parameter Consistency**: When evaluating models, use the **same parameters** that were used during training.
@@ -310,7 +356,7 @@ uv run python -m src.my_project.main [OPTIONS]
 | Argument       | Description        | Choices                                                                                                      | Default    | Notes                             |
 | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ | ---------- | --------------------------------- |
 | `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                                                         | `ETHZ`     |                                   |
-| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2` | `phasenet` |                                   |
+| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2`, `umamba_mag` | `phasenet` |                                   |
 | `--model_path` | Path to model file | Any valid path                                                                                               | `""`       | Required for evaluation modes     |
 | `--epochs`     | Training epochs    | Positive integer                                                                                             | `5`        | For training modes only           |
 | `--plot`       | Show/save plots    | Flag (no value)                                                                                              | `False`    | For `eval_mag` and `plot_history` |
@@ -405,6 +451,16 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 | `--lstm_layers` | Number of LSTM layers | int   | 2       |       |
 | `--dropout`     | Dropout rate          | float | 0.2     |       |
 
+#### UMambaMag Parameters
+
+| Argument                   | Description                       | Type | Default | Notes                                   |
+| -------------------------- | --------------------------------- | ---- | ------- | --------------------------------------- |
+| `--n_stages`               | Number of encoder/decoder stages  | int  | 4       | Controls depth of U-Net architecture    |
+| `--kernel_size`            | Kernel size for convolutions      | int  | 7       | Affects receptive field                 |
+| `--n_blocks_per_stage`     | Residual blocks per stage         | int  | 2       | More blocks = more capacity             |
+| `--deep_supervision`       | Enable multi-scale supervision    | flag | False   | Include flag to enable                  |
+| `--norm`                   | Normalization method              | str  | "std"   | Choices: "std", "peak"                  |
+
 ### Mode-Specific Requirements
 
 #### Training Modes (`train_phase`, `train_mag`)
@@ -443,6 +499,7 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
   - `eqtransformer_mag`: Transformer-based magnitude estimation with 30-second windows
   - `vit_mag`: Vision Transformer adapted for magnitude estimation with patch-based processing
   - `amag_v2`: Advanced Magnitude estimation model (MagnitudeNet)
+  - `umamba_mag`: U-Net with Mamba state space models for efficient long-range modeling
 
 ### Available Datasets
 

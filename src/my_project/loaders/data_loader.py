@@ -23,6 +23,7 @@ from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.EQTransformer.model import EQTransformerMag
 from my_project.models.ViT.model import ViTMagnitudeEstimator
+from my_project.models.UMamba_mag.model import UMambaMag
 
 # Only training for S and P picks, map the labels
 phase_dict = {
@@ -135,8 +136,8 @@ def load_dataset(
 
     if isinstance(model, (PhaseNetMag, MagnitudeNet)):
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3000))
-    elif isinstance(model, (EQTransformerMag, ViTMagnitudeEstimator)):
-        # EQTransformerMag and ViT use 30-second windows (3001 samples at 100Hz)
+    elif isinstance(model, (EQTransformerMag, ViTMagnitudeEstimator, UMambaMag)):
+        # EQTransformerMag, ViT, and UMamba use 30-second windows (3001 samples at 100Hz)
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3001))
     elif isinstance(model, (sbm.PhaseNet, PhaseNetLSTM, PhaseNetConvLSTM)):
         ds_generator.add_augmentations(get_phase_augmentation())
