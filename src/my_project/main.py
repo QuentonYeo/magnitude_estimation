@@ -19,6 +19,8 @@ from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.EQTransformer.model import EQTransformerMag
 from my_project.models.ViT.model import ViTMagnitudeEstimator
 from my_project.models.UMamba_mag.model import UMambaMag
+from my_project.models.UMamba_mag_v2.model import UMambaMag as UMambaMagV2
+from my_project.models.UMamba_mag_v3.model import UMambaMag as UMambaMagV3
 
 # Import unified training and inference functions
 from my_project.utils.unified_training import (
@@ -28,7 +30,7 @@ from my_project.utils.unified_training import (
     evaluate_magnitude_model,
 )
 
-from my_project.utils.utils import plot_training_history
+from my_project.utils.utils import plot_training_history, plot_snr_distribution, get_mean_snr_series
 
 
 def extract_model_params(args, model_type):
@@ -38,11 +40,11 @@ def extract_model_params(args, model_type):
     # Common parameters
     if hasattr(args, "filter_factor") and args.filter_factor != 1:
         params["filter_factor"] = args.filter_factor
-    if hasattr(args, "early_stopping_patience") and args.early_stopping_patience != 10:
+    if hasattr(args, "early_stopping_patience") and args.early_stopping_patience != 5:
         params["early_stopping_patience"] = args.early_stopping_patience
 
     # Universal training parameters for magnitude models
-    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag", "vit_mag", "umamba_mag"]:
+    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag", "vit_mag", "umamba_mag", "umamba_mag_v2", "umamba_mag_v3"]:
         if hasattr(args, "learning_rate") and args.learning_rate is not None:
             params["learning_rate"] = args.learning_rate
         if hasattr(args, "batch_size") and args.batch_size is not None:
@@ -117,6 +119,98 @@ def extract_model_params(args, model_type):
             params["deep_supervision"] = args.deep_supervision
         if hasattr(args, "norm") and args.norm != "std":
             params["norm"] = args.norm
+        if hasattr(args, "pooling_type") and args.pooling_type != "avg":
+            params["pooling_type"] = args.pooling_type
+        if hasattr(args, "dropout") and args.dropout != 0.3:
+            params["dropout"] = args.dropout
+        # Parse list-like UMamba args (features_per_stage, strides, hidden_dims)
+        if hasattr(args, "features_per_stage") and args.features_per_stage:
+            try:
+                params["features_per_stage"] = [int(x.strip()) for x in args.features_per_stage.split(",")]
+            except:
+                print(f"Warning: Could not parse features_per_stage '{args.features_per_stage}', using default")
+        if hasattr(args, "strides") and args.strides:
+            try:
+                params["strides"] = [int(x.strip()) for x in args.strides.split(",")]
+            except:
+                print(f"Warning: Could not parse strides '{args.strides}', using default")
+        if hasattr(args, "hidden_dims") and args.hidden_dims:
+            try:
+                params["hidden_dims"] = [int(x.strip()) for x in args.hidden_dims.split(",")]
+            except:
+                print(f"Warning: Could not parse hidden_dims '{args.hidden_dims}', using default")
+        # Keep n_conv_per_stage_decoder for backward compatibility but it's deprecated
+        if hasattr(args, "n_conv_per_stage_decoder") and args.n_conv_per_stage_decoder != 2:
+            params["n_conv_per_stage_decoder"] = args.n_conv_per_stage_decoder
+
+    # UMamba V2 specific parameters
+    elif model_type == "umamba_mag_v2":
+        if hasattr(args, "n_stages") and args.n_stages != 4:
+            params["n_stages"] = args.n_stages
+        if hasattr(args, "kernel_size") and args.kernel_size != 7:
+            params["kernel_size"] = args.kernel_size
+        if hasattr(args, "n_blocks_per_stage") and args.n_blocks_per_stage != 2:
+            params["n_blocks_per_stage"] = args.n_blocks_per_stage
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
+        if hasattr(args, "pooling_type") and args.pooling_type != "avg":
+            params["pooling_type"] = args.pooling_type
+        if hasattr(args, "dropout") and args.dropout != 0.3:
+            params["dropout"] = args.dropout
+        # Parse list-like UMamba V2 args
+        if hasattr(args, "features_per_stage") and args.features_per_stage:
+            try:
+                params["features_per_stage"] = [int(x.strip()) for x in args.features_per_stage.split(",")]
+            except:
+                print(f"Warning: Could not parse features_per_stage '{args.features_per_stage}', using default")
+        if hasattr(args, "strides") and args.strides:
+            try:
+                params["strides"] = [int(x.strip()) for x in args.strides.split(",")]
+            except:
+                print(f"Warning: Could not parse strides '{args.strides}', using default")
+        if hasattr(args, "hidden_dims") and args.hidden_dims:
+            try:
+                params["hidden_dims"] = [int(x.strip()) for x in args.hidden_dims.split(",")]
+            except:
+                print(f"Warning: Could not parse hidden_dims '{args.hidden_dims}', using default")
+
+    # UMamba V3 specific parameters (triple-head architecture)
+    elif model_type == "umamba_mag_v3":
+        if hasattr(args, "n_stages") and args.n_stages != 4:
+            params["n_stages"] = args.n_stages
+        if hasattr(args, "kernel_size") and args.kernel_size != 7:
+            params["kernel_size"] = args.kernel_size
+        if hasattr(args, "n_blocks_per_stage") and args.n_blocks_per_stage != 2:
+            params["n_blocks_per_stage"] = args.n_blocks_per_stage
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
+        if hasattr(args, "pooling_type") and args.pooling_type != "avg":
+            params["pooling_type"] = args.pooling_type
+        if hasattr(args, "dropout") and args.dropout != 0.3:
+            params["dropout"] = args.dropout
+        # Parse list-like UMamba V3 args
+        if hasattr(args, "features_per_stage") and args.features_per_stage:
+            try:
+                params["features_per_stage"] = [int(x.strip()) for x in args.features_per_stage.split(",")]
+            except:
+                print(f"Warning: Could not parse features_per_stage '{args.features_per_stage}', using default")
+        if hasattr(args, "strides") and args.strides:
+            try:
+                params["strides"] = [int(x.strip()) for x in args.strides.split(",")]
+            except:
+                print(f"Warning: Could not parse strides '{args.strides}', using default")
+        if hasattr(args, "hidden_dims") and args.hidden_dims:
+            try:
+                params["hidden_dims"] = [int(x.strip()) for x in args.hidden_dims.split(",")]
+            except:
+                print(f"Warning: Could not parse hidden_dims '{args.hidden_dims}', using default")
+        # V3-specific: loss weights and uncertainty head
+        if hasattr(args, "scalar_weight") and args.scalar_weight != 0.7:
+            params["scalar_weight"] = args.scalar_weight
+        if hasattr(args, "temporal_weight") and args.temporal_weight != 0.25:
+            params["temporal_weight"] = args.temporal_weight
+        if hasattr(args, "use_uncertainty"):
+            params["use_uncertainty"] = args.use_uncertainty
 
     return params
 
@@ -237,8 +331,11 @@ def create_magnitude_model(model_type: str, **kwargs):
         kernel_size = kwargs.get("kernel_size", 7)
         strides = kwargs.get("strides", [2, 2, 2, 2])
         n_blocks_per_stage = kwargs.get("n_blocks_per_stage", 2)
-        n_conv_per_stage_decoder = kwargs.get("n_conv_per_stage_decoder", 2)
-        deep_supervision = kwargs.get("deep_supervision", False)
+        n_conv_per_stage_decoder = kwargs.get("n_conv_per_stage_decoder", 2)  # Deprecated
+        deep_supervision = kwargs.get("deep_supervision", False)  # Deprecated
+        pooling_type = kwargs.get("pooling_type", "avg")
+        hidden_dims = kwargs.get("hidden_dims", [128, 64])
+        dropout = kwargs.get("dropout", 0.3)
         norm = kwargs.get("norm", "std")
         in_channels = kwargs.get("in_channels", 3)
         sampling_rate = kwargs.get("sampling_rate", 100)
@@ -252,8 +349,72 @@ def create_magnitude_model(model_type: str, **kwargs):
             kernel_size=kernel_size,
             strides=strides,
             n_blocks_per_stage=n_blocks_per_stage,
-            n_conv_per_stage_decoder=n_conv_per_stage_decoder,
-            deep_supervision=deep_supervision,
+            n_conv_per_stage_decoder=n_conv_per_stage_decoder,  # Deprecated but kept for compatibility
+            deep_supervision=deep_supervision,  # Deprecated but kept for compatibility
+            pooling_type=pooling_type,
+            hidden_dims=hidden_dims,
+            dropout=dropout,
+        )
+    elif model_type == "umamba_mag_v2":
+        # Extract UMamba V2-specific parameters with defaults
+        n_stages = kwargs.get("n_stages", 4)
+        features_per_stage = kwargs.get("features_per_stage", [8, 16, 32, 64])
+        kernel_size = kwargs.get("kernel_size", 7)
+        strides = kwargs.get("strides", [2, 2, 2, 2])
+        n_blocks_per_stage = kwargs.get("n_blocks_per_stage", 2)
+        pooling_type = kwargs.get("pooling_type", "avg")
+        hidden_dims = kwargs.get("hidden_dims", [128, 64])
+        dropout = kwargs.get("dropout", 0.3)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return UMambaMagV2(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            norm=norm,
+            n_stages=n_stages,
+            features_per_stage=features_per_stage,
+            kernel_size=kernel_size,
+            strides=strides,
+            n_blocks_per_stage=n_blocks_per_stage,
+            pooling_type=pooling_type,
+            hidden_dims=hidden_dims,
+            dropout=dropout,
+        )
+    elif model_type == "umamba_mag_v3":
+        # Extract UMamba V3-specific parameters with defaults
+        n_stages = kwargs.get("n_stages", 4)
+        features_per_stage = kwargs.get("features_per_stage", [8, 16, 32, 64])
+        kernel_size = kwargs.get("kernel_size", 7)
+        strides = kwargs.get("strides", [2, 2, 2, 2])
+        n_blocks_per_stage = kwargs.get("n_blocks_per_stage", 2)
+        pooling_type = kwargs.get("pooling_type", "avg")
+        hidden_dims = kwargs.get("hidden_dims", [192, 96])  # Updated default for multi-scale
+        dropout = kwargs.get("dropout", 0.3)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+        # V3-specific: triple-head parameters
+        scalar_weight = kwargs.get("scalar_weight", 0.7)
+        temporal_weight = kwargs.get("temporal_weight", 0.25)
+        use_uncertainty = kwargs.get("use_uncertainty", False)
+
+        return UMambaMagV3(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            norm=norm,
+            n_stages=n_stages,
+            features_per_stage=features_per_stage,
+            kernel_size=kernel_size,
+            strides=strides,
+            n_blocks_per_stage=n_blocks_per_stage,
+            pooling_type=pooling_type,
+            hidden_dims=hidden_dims,
+            dropout=dropout,
+            scalar_weight=scalar_weight,
+            temporal_weight=temporal_weight,
+            use_uncertainty=use_uncertainty,
         )
     else:
         raise ValueError(f"Unknown magnitude model type: {model_type}")
@@ -285,12 +446,16 @@ def get_model_name(model_type: str, data_name: str, **kwargs):
         return f"ViTMag_{data_name}"
     elif model_type == "umamba_mag":
         return f"UMambaMag_{data_name}"
+    elif model_type == "umamba_mag_v2":
+        return f"UMambaMag_v2_{data_name}"
+    elif model_type == "umamba_mag_v3":
+        return f"UMambaMag_v3_{data_name}"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
 
 def train_phase_unified(
-    data: BenchmarkDataset, model_type: str, epochs: int = 5, **kwargs
+    data: BenchmarkDataset, model_type: str, epochs: int = 5, device: int = None, quiet: bool = False, **kwargs
 ):
     """Unified phase model training function"""
     print(f"\nTraining {model_type} on {data.name} for {epochs} epochs...")
@@ -309,12 +474,14 @@ def train_phase_unified(
         data=data,
         learning_rate=learning_rate,
         epochs=epochs,
+        device=device,
+        quiet=quiet,
         **kwargs,
     )
 
 
 def train_magnitude_unified(
-    data: BenchmarkDataset, model_type: str, epochs: int = 50, **kwargs
+    data: BenchmarkDataset, model_type: str, epochs: int = 50, device: int = None, quiet: bool = False, **kwargs
 ):
     """Unified magnitude model training function"""
     print(f"\nTraining {model_type} on {data.name} for {epochs} epochs...")
@@ -338,6 +505,7 @@ def train_magnitude_unified(
         learning_rate = kwargs.pop("learning_rate", 1e-4)  # Lower LR for transformers
         batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
         optimizer_name = kwargs.get("optimizer_name", "AdamW")
+        kwargs.setdefault("weight_decay", 1e-2)  # Higher weight decay for transformers
         kwargs.setdefault("scheduler_factor", 0.5)
         kwargs.setdefault("gradient_clip", 1.0)
         kwargs.setdefault("warmup_epochs", 5)  # Transformer warmup
@@ -356,12 +524,14 @@ def train_magnitude_unified(
         epochs=epochs,
         batch_size=batch_size,
         optimizer_name=optimizer_name,
+        device=device,
+        quiet=quiet,
         **kwargs,
     )
 
 
 def evaluate_phase_unified(
-    data: BenchmarkDataset, model_type: str, model_path: str, **kwargs
+    data: BenchmarkDataset, model_type: str, model_path: str, device: int = None, **kwargs
 ):
     """Unified phase model evaluation function"""
     print(f"\nEvaluating {model_type} on {data.name}...")
@@ -396,12 +566,12 @@ def evaluate_phase_unified(
         raise ValueError(f"Unknown phase model type: {model_type}")
 
     return evaluate_phase_model_unified(
-        model=model, model_path=model_path, data=data, **kwargs
+        model=model, model_path=model_path, data=data, device=device, **kwargs
     )
 
 
 def evaluate_magnitude_unified(
-    data: BenchmarkDataset, model_type: str, model_path: str, **kwargs
+    data: BenchmarkDataset, model_type: str, model_path: str, device: int = None, **kwargs
 ):
     """Unified magnitude model evaluation function"""
     print(f"\nEvaluating {model_type} on {data.name}...")
@@ -418,7 +588,7 @@ def evaluate_magnitude_unified(
         eval_kwargs["num_examples"] = kwargs["num_examples"]
 
     return evaluate_magnitude_model(
-        model=model, model_path=model_path, data=data, **eval_kwargs
+        model=model, model_path=model_path, data=data, device=device, **eval_kwargs
     )
 
 
@@ -487,6 +657,7 @@ if __name__ == "__main__":
             "tutorial_evaluate_phasenet",
             "tutorial",
             "plot_history",
+            "plot_snr",
         ],
         help="Workflow mode",
     )
@@ -503,6 +674,8 @@ if __name__ == "__main__":
             "eqtransformer_mag",
             "vit_mag",
             "umamba_mag",
+            "umamba_mag_v2",
+            "umamba_mag_v3",
         ],
         help="Model type to use",
     )
@@ -525,6 +698,12 @@ if __name__ == "__main__":
         "--plot",
         action="store_true",
         help="Display plots on screen and save PNG files (for eval_mag and plot_history modes)",
+    )
+    parser.add_argument(
+        "--num_examples",
+        type=int,
+        default=5,
+        help="Number of example plots to generate during evaluation (for eval_mag mode with --plot enabled)",
     )
 
     # Model parameter arguments
@@ -592,7 +771,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--early_stopping_patience",
         type=int,
-        default=10,
+        default=5,
         help="Stop training if no improvement for N epochs",
     )
 
@@ -660,6 +839,68 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable deep supervision for UMamba model",
     )
+    parser.add_argument(
+        "--features_per_stage",
+        type=str,
+        default="8,16,32,64",
+        help="Comma-separated list of feature sizes per UMamba stage (e.g. 8,16,32,64)",
+    )
+    parser.add_argument(
+        "--strides",
+        type=str,
+        default="2,2,2,2",
+        help="Comma-separated list of strides per UMamba stage (e.g. 2,2,2,2)",
+    )
+    parser.add_argument(
+        "--n_conv_per_stage_decoder",
+        type=int,
+        default=2,
+        help="Number of conv layers per decoder stage in UMamba model (V1 only)",
+    )
+    parser.add_argument(
+        "--pooling_type",
+        type=str,
+        default="avg",
+        choices=["avg", "max"],
+        help="Pooling type for UMamba V2 model (avg or max)",
+    )
+    parser.add_argument(
+        "--hidden_dims",
+        type=str,
+        default="192,96",
+        help="Comma-separated list of hidden dimensions for UMamba V2/V3 regression head (e.g. 192,96 for V3 multi-scale, 128,64 for V2)",
+    )
+    parser.add_argument(
+        "--scalar_weight",
+        type=float,
+        default=0.7,
+        help="Weight for scalar magnitude loss in UMamba V3 training (recommended: 0.6-0.8). Combined with temporal_weight should be ≤ 1.0",
+    )
+    parser.add_argument(
+        "--temporal_weight",
+        type=float,
+        default=0.25,
+        help="Weight for temporal magnitude loss in UMamba V3 training (recommended: 0.2-0.4). Combined with scalar_weight should be ≤ 1.0",
+    )
+    parser.add_argument(
+        "--use_uncertainty",
+        action="store_true",
+        help="Enable uncertainty head for automatic sample weighting in UMamba V3 (Kendall & Gal 2017). Recommended for large datasets (>100K samples)",
+    )
+    parser.add_argument(
+        "--cuda",
+        type=int,
+        default=None,
+        help="CUDA device number to use (e.g., 0, 1). If not provided, uses model.to_preferred_device()",
+    )
+    parser.add_argument(
+        "--snr_threshold",
+        type=float,
+        default=None,
+        help="SNR threshold in dB for filtering STEAD dataset (e.g., 10.0). Only traces with SNR >= threshold will be used. If not provided, uses all traces.",
+    )
+    parser.add_argument('--quiet', action='store_true', 
+                    help='Disable tqdm progress bars for cleaner logs')
 
     args = parser.parse_args()
 
@@ -672,6 +913,19 @@ if __name__ == "__main__":
             data = sbd.ETHZ(sampling_rate=100)
         elif args.dataset == "STEAD":
             data = sbd.STEAD(sampling_rate=100)
+            
+            # Apply SNR filtering if threshold is provided
+            if args.snr_threshold is not None:
+                print(f"\nApplying SNR filter: mean(trace_snr_db) >= {args.snr_threshold} dB")
+                print(f"Dataset size before filtering: {len(data)} samples")
+
+                mean_snr = get_mean_snr_series(data)
+                mask = mean_snr >= args.snr_threshold
+                # data.filter expects an array-like boolean mask aligned with metadata
+                data.filter(mask.values)
+
+                print(f"Dataset size after filtering: {len(data)} samples")
+                print(f"Filtered out {int((~mask).sum())} samples with low SNR")
         elif args.dataset == "GEOFON":
             data = sbd.GEOFON(sampling_rate=100)
         elif args.dataset == "MLAAPDE":
@@ -685,12 +939,21 @@ if __name__ == "__main__":
 
         print(f"{data.name} dataset loaded: {len(data)} samples")
 
+    # If requested, plot SNR distribution for the loaded dataset (don't exit)
+    if args.mode == "plot_snr":
+        try:
+            out = plot_snr_distribution(data)
+            print(f"SNR plot saved to: {out}")
+            exit(0)
+        except Exception as e:
+            print(f"Error while plotting SNR distribution: {e}")
+
     # Run appropriate workflow
     if args.mode == "train_phase":
         if args.model_type in ["phasenet", "phasenet_lstm", "phasenet_conv_lstm"]:
             model_params = extract_model_params(args, args.model_type)
             train_phase_unified(
-                data, args.model_type, epochs=args.epochs, **model_params
+                data, args.model_type, epochs=args.epochs, device=args.cuda, quiet=args.quiet, **model_params
             )
         else:
             print(f"Error: {args.model_type} is not a valid phase model type")
@@ -704,16 +967,18 @@ if __name__ == "__main__":
             "amag_v2",
             "eqtransformer_mag",
             "vit_mag",
-            "umamba_mag"
+            "umamba_mag",
+            "umamba_mag_v2",
+            "umamba_mag_v3",
         ]:
             model_params = extract_model_params(args, args.model_type)
             train_magnitude_unified(
-                data, args.model_type, epochs=args.epochs, **model_params
+                data, args.model_type, epochs=args.epochs, device=args.cuda, quiet=args.quiet, **model_params
             )
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
             print(
-                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag, umamba_mag"
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag, umamba_mag, umamba_mag_v2, umamba_mag_v3"
             )
             exit(1)
     elif args.mode == "eval_phase":
@@ -723,7 +988,7 @@ if __name__ == "__main__":
         if args.model_type in ["phasenet", "phasenet_lstm", "phasenet_conv_lstm"]:
             model_params = extract_model_params(args, args.model_type)
             evaluate_phase_unified(
-                data, args.model_type, args.model_path, **model_params
+                data, args.model_type, args.model_path, device=args.cuda, **model_params
             )
         else:
             print(f"Error: {args.model_type} is not a valid phase model type")
@@ -740,25 +1005,32 @@ if __name__ == "__main__":
             "amag_v2",
             "eqtransformer_mag",
             "vit_mag",
+            "umamba_mag",
+            "umamba_mag_v2",
+            "umamba_mag_v3",
         ]:
             model_params = extract_model_params(args, args.model_type)
-            # Use smaller batch size for transformer models due to complexity
-            batch_size = (
-                64 if args.model_type in ["eqtransformer_mag", "vit_mag"] else 256
-            )
+            # Choose sensible defaults per model type to avoid OOMs
+            if "batch_size" not in model_params:
+                if args.model_type in ["eqtransformer_mag", "vit_mag", "umamba_mag", "umamba_mag_v2", "umamba_mag_v3"]:
+                    model_params["batch_size"] = 64
+                else:
+                    model_params["batch_size"] = 256
+
+            # Use the unified evaluation path for all magnitude models (UMamba included)
             evaluate_magnitude_unified(
                 data,
                 args.model_type,
                 args.model_path,
+                device=args.cuda,
                 plot_examples=args.plot,
-                num_examples=5,
-                batch_size=batch_size,
+                num_examples=args.num_examples,
                 **model_params,
             )
         else:
             print(f"Error: {args.model_type} is not a valid magnitude model type")
             print(
-                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag"
+                "Valid magnitude model types: phasenet_mag, amag_v2, eqtransformer_mag, vit_mag, umamba_mag, umamba_mag_v2, umamba_mag_v3"
             )
             exit(1)
     elif args.mode == "tutorial":
@@ -768,7 +1040,7 @@ if __name__ == "__main__":
     elif args.mode == "tutorial_train_phasenet":
         # Use the unified training function for tutorial PhaseNet training
         model_params = extract_model_params(args, "phasenet")
-        train_phase_unified(data, "phasenet", epochs=args.epochs, **model_params)
+        train_phase_unified(data, "phasenet", epochs=args.epochs, device=args.cuda, quiet=args.quiet, **model_params)
     elif args.mode == "tutorial_evaluate_phasenet":
         if not args.model_path:
             print("Error: --model_path is required for tutorial_evaluate_phasenet mode")
@@ -776,13 +1048,35 @@ if __name__ == "__main__":
             exit(1)
         # Use the unified evaluation function for tutorial PhaseNet evaluation
         model_params = extract_model_params(args, "phasenet")
-        evaluate_phase_unified(data, "phasenet", args.model_path, **model_params)
+        evaluate_phase_unified(data, "phasenet", args.model_path, device=args.cuda, **model_params)
     elif args.mode == "plot_history":
         if not args.model_path:
             print("Error: --model_path is required for plot_history mode")
             print("Usage: --model_path path/to/training_history_*.pt")
             exit(1)
         plot_training_history(args.model_path, show_plot=args.plot)
+    elif args.mode == "plot_snr":
+        # Load dataset for SNR plotting
+        print("\n" + "=" * 50)
+        print("LOADING DATA FOR SNR ANALYSIS")
+        print("=" * 50)
+        if args.dataset == "ETHZ":
+            data = sbd.ETHZ(sampling_rate=100)
+        elif args.dataset == "STEAD":
+            data = sbd.STEAD(sampling_rate=100)
+        elif args.dataset == "GEOFON":
+            data = sbd.GEOFON(sampling_rate=100)
+        elif args.dataset == "MLAAPDE":
+            data = sbd.MLAAPDE(sampling_rate=100)
+        elif args.dataset == "LENDB":
+            data = sbd.LENDB(sampling_rate=100)
+        elif args.dataset == "TXED":
+            data = sbd.TXED(sampling_rate=100)
+        else:
+            raise ValueError(f"Unknown dataset: {args.dataset}")
+        
+        print(f"{data.name} dataset loaded: {len(data)} samples")
+        plot_snr_distribution(data)
     else:
         print(f"Unknown mode: {args.mode}")
 

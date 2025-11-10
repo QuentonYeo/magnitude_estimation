@@ -43,31 +43,63 @@ def evaluate_magnitude_net(
     # Handle different checkpoint formats
     if "model_state_dict" in checkpoint:
         state_dict = checkpoint["model_state_dict"]
+        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'N/A')}")
+        if "val_loss" in checkpoint:
+            print(f"Checkpoint validation loss: {checkpoint['val_loss']:.6f}")
+        if "best_val_loss" in checkpoint:
+            print(f"Best validation loss: {checkpoint['best_val_loss']:.6f}")
     else:
         state_dict = checkpoint
 
     model.load_state_dict(state_dict)
     model.eval()
-    print(f"Loaded model weights from {model_path}")
+    print(f"Model loaded and set to evaluation mode")
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {total_params:,}")
 
     # Load test data
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
     print(f"Test samples: {len(test_generator)}")
+    print(f"Test batches: {len(test_loader)}")
 
     # Collect all predictions and targets
     all_predictions = []
     all_targets = []
     all_mags = []
+    inference_times = []
 
     print("Running inference on test set...")
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(test_loader, desc="Evaluating")):
+            # Time the forward pass
+            start_time = (
+                torch.cuda.Event(enable_timing=True) if model.device.type == "cuda" else None
+            )
+            end_time = (
+                torch.cuda.Event(enable_timing=True) if model.device.type == "cuda" else None
+            )
+
+            if start_time is not None:
+                start_time.record()
+            if start_time is not None:
+                start_time.record()
+
             # Forward pass
             x = batch["X"].to(model.device)
             x_preproc = model.annotate_batch_pre(x, {})
             predictions = model(x_preproc)
+
+            if end_time is not None:
+                end_time.record()
+                torch.cuda.synchronize()
+                inference_time = (
+                    start_time.elapsed_time(end_time) / 1000.0
+                )  # Convert to seconds
+                inference_times.append(inference_time)
 
             # Get targets
             targets = batch["magnitude"].to(model.device)
@@ -93,15 +125,23 @@ def evaluate_magnitude_net(
     mae = mean_absolute_error(all_targets, all_predictions)
     r2 = r2_score(all_targets, all_predictions)
 
-    print("\n" + "=" * 50)
-    print("EVALUATION RESULTS")
-    print("=" * 50)
+    # Calculate timing metrics
+    avg_inference_time = np.mean(inference_times) if inference_times else 0
+    total_inference_time = np.sum(inference_times) if inference_times else 0
+
+    print("\n" + "=" * 60)
+    print("MAGNITUDENET (AMAG_V2) EVALUATION RESULTS")
+    print("=" * 60)
     print(f"Number of test samples: {len(all_predictions)}")
+    print(f"Model parameters: {total_params:,}")
     print(f"Mean Squared Error (MSE): {mse:.4f}")
     print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
     print(f"Mean Absolute Error (MAE): {mae:.4f}")
     print(f"R² Score: {r2:.4f}")
-    print("=" * 50)
+    if inference_times:
+        print(f"Average inference time: {avg_inference_time:.4f}s per batch")
+        print(f"Total inference time: {total_inference_time:.2f}s")
+    print("=" * 60)
 
     # Plot examples if requested
     if plot_examples and num_examples > 0:
@@ -168,6 +208,7 @@ def evaluate_magnitude_net(
     # Return results dictionary
     results = {
         "n_samples": len(all_predictions),
+        "model_params": total_params,
         "mse": mse,
         "rmse": rmse,
         "mae": mae,
@@ -175,6 +216,8 @@ def evaluate_magnitude_net(
         "predictions": all_predictions,
         "targets": all_targets,
         "residuals": all_predictions - all_targets,
+        "avg_inference_time": avg_inference_time,
+        "total_inference_time": total_inference_time,
     }
 
     if all_mags:

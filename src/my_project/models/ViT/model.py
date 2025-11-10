@@ -229,7 +229,7 @@ class ViTMagnitudeEstimator(WaveformModel):
         super().__init__(
             citation=citation,
             in_samples=3001,  # 30 seconds at 100Hz
-            output_type="array",
+            output_type="scalar",  # Changed from "array" - this is magnitude regression
             pred_sample=(0, 3001),
             labels=["magnitude"],  # Single output for magnitude
             sampling_rate=sampling_rate,
@@ -347,13 +347,10 @@ class ViTMagnitudeEstimator(WaveformModel):
         # Output magnitude
         magnitude = self.output(x)
         # magnitude is (batch, 1)
-
-        # For SeisBench compatibility, repeat magnitude across all time samples
-        # This should match PhaseNetMag format: (batch, channels, samples)
-        batch_size = magnitude.shape[0]
-        magnitude = magnitude.unsqueeze(-1).expand(batch_size, 1, 3001)
-
-        return magnitude
+        
+        # Return scalar magnitude (batch,) for proper regression training
+        # No need to expand to (batch, 1, 3001) - that's for detection models
+        return magnitude.squeeze(-1)  # (batch,)
 
     def annotate_batch_pre(
         self, batch: torch.Tensor, argdict: dict[str, Any]
@@ -372,10 +369,9 @@ class ViTMagnitudeEstimator(WaveformModel):
     def annotate_batch_post(
         self, batch: torch.Tensor, piggyback: Any, argdict: dict[str, Any]
     ) -> torch.Tensor:
-        """Post-processing: transpose predictions to correct shape."""
-        # Transpose predictions to correct shape (batch, samples, channels)
-        # Same as PhaseNetMag
-        batch = torch.transpose(batch, -1, -2)
+        """Post-processing: return scalar predictions as-is."""
+        # For scalar output (magnitude regression), no transposition needed
+        # batch is already (batch,) shape
         return batch
 
     def classify_aggregate(self, annotations, argdict) -> sbu.ClassifyOutput:

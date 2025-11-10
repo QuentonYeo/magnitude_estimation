@@ -1,8 +1,10 @@
 import os
 import argparse
+import time
 import torch
 import torch.nn as nn
 from datetime import datetime
+from tqdm import tqdm
 
 import seisbench.data as sbd
 from my_project.models.phasenet_mag.model import PhaseNetMag
@@ -20,8 +22,9 @@ def train_phasenet_mag(
     weight_decay=1e-5,
     scheduler_patience=5,
     save_every=5,
-    early_stopping_patience=10,
+    early_stopping_patience=5,
     warmup_epochs=5,
+    quiet=False,
 ):
     """
     Train PhaseNetMag model for magnitude regression.
@@ -39,6 +42,7 @@ def train_phasenet_mag(
         save_every: Save model every N epochs
         early_stopping_patience: Stop training if no improvement for N epochs
         warmup_epochs: Number of epochs for learning rate warmup
+        quiet: If True, disable tqdm progress bars
     """
     print("\n" + "=" * 50)
     print("TRAINING")
@@ -86,9 +90,14 @@ def train_phasenet_mag(
     def train_loop(dataloader):
         model.train()
         total_loss = 0
+        total_mae = 0
+        total_mse = 0
         num_batches = len(dataloader)
 
-        for batch_id, batch in enumerate(dataloader):
+        # Create progress bar
+        pbar = tqdm(dataloader, desc="Training", leave=False, disable=quiet)
+        
+        for batch in pbar:
             # Get input and target
             x = batch["X"].to(model.device)
             y_true = batch["magnitude"].to(model.device)  # Target magnitudes
@@ -108,23 +117,39 @@ def train_phasenet_mag(
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
+            batch_loss = loss.item()
+            total_loss += batch_loss
+            total_mse += batch_loss
+            
+            with torch.no_grad():
+                mae = torch.abs(y_pred - y_true).mean().item()
+                total_mae += mae
 
-            if batch_id % 10 == 0:
-                current = batch_id * batch["X"].shape[0]
-                print(
-                    f"loss: {loss.item():>7f}  [{current:>5d}/{len(dataloader.dataset):>5d}]"
-                )
+            # Update progress bar
+            pbar.set_postfix({
+                'loss': f'{batch_loss:.4f}',
+                'mae': f'{mae:.4f}'
+            })
 
-        return total_loss / num_batches
+        avg_loss = total_loss / num_batches
+        avg_mae = total_mae / num_batches
+        avg_mse = total_mse / num_batches
+        avg_rmse = avg_mse ** 0.5
+        
+        return avg_loss, avg_mae, avg_mse, avg_rmse
 
     def validation_loop(dataloader):
         model.eval()
         total_loss = 0
+        total_mae = 0
+        total_mse = 0
         num_batches = len(dataloader)
 
+        # Create progress bar
+        pbar = tqdm(dataloader, desc="Validation", leave=False, disable=quiet)
+        
         with torch.no_grad():
-            for batch in dataloader:
+            for batch in pbar:
                 x = batch["X"].to(model.device)
                 y_true = batch["magnitude"].to(model.device)
 
@@ -135,11 +160,25 @@ def train_phasenet_mag(
 
                 # Calculate loss
                 loss = criterion(y_pred, y_true)
-                total_loss += loss.item()
+                mae = torch.abs(y_pred - y_true).mean()
+                
+                batch_loss = loss.item()
+                total_loss += batch_loss
+                total_mse += batch_loss
+                total_mae += mae.item()
+                
+                # Update progress bar
+                pbar.set_postfix({
+                    'loss': f'{batch_loss:.4f}',
+                    'mae': f'{mae.item():.4f}'
+                })
 
         avg_loss = total_loss / num_batches
-        print(f"Validation avg loss: {avg_loss:>8f}")
-        return avg_loss
+        avg_mae = total_mae / num_batches
+        avg_mse = total_mse / num_batches
+        avg_rmse = avg_mse ** 0.5
+        
+        return avg_loss, avg_mae, avg_mse, avg_rmse
 
     # Create save directory with timestamp
     script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -151,22 +190,38 @@ def train_phasenet_mag(
     best_val_loss = float("inf")
     train_losses = []
     val_losses = []
+    train_maes = []
+    val_maes = []
     learning_rates = []
     epochs_without_improvement = 0
+    
+    # Track total training time
+    training_start_time = time.time()
 
     for epoch in range(epochs):
-        print(f"\nEpoch {epoch + 1}/{epochs}")
+        print(f"\n{'='*50}")
+        print(f"Epoch {epoch + 1}/{epochs}")
         print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
-        print("-" * 50)
+        print(f"{'='*50}")
 
         # Train
-        train_loss = train_loop(train_loader)
+        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader)
         train_losses.append(train_loss)
+        train_maes.append(train_mae)
         learning_rates.append(optimizer.param_groups[0]["lr"])
 
         # Validate
-        val_loss = validation_loop(dev_loader)
+        val_loss, val_mae, val_mse, val_rmse = validation_loop(dev_loader)
         val_losses.append(val_loss)
+        val_maes.append(val_mae)
+
+        # Print epoch summary
+        print(f"\n{'='*50}")
+        print(f"Epoch {epoch + 1}/{epochs} Summary")
+        print(f"{'='*50}")
+        print(f"Training   -> Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
+        print(f"Validation -> Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
+        print(f"{'='*50}")
 
         # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
         warmup_scheduler.step()
@@ -188,6 +243,7 @@ def train_phasenet_mag(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": val_loss,
                     "train_loss": train_loss,
+                    "best_val_loss": best_val_loss,
                     "config": {
                         "model_name": model_name,
                         "learning_rate": learning_rate,
@@ -261,14 +317,24 @@ def train_phasenet_mag(
         },
         final_model_path,
     )
-    print(f"Final model saved: {final_model_path}")
+    print(f"\nFinal model saved: {final_model_path}")
+
+    # Calculate total training time
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    hours = int(total_training_time // 3600)
+    minutes = int((total_training_time % 3600) // 60)
+    seconds = int(total_training_time % 60)
 
     # Save training history
     history = {
         "train_losses": train_losses,
         "val_losses": val_losses,
+        "train_maes": train_maes,
+        "val_maes": val_maes,
         "learning_rates": learning_rates,
         "best_val_loss": best_val_loss,
+        "total_training_time": total_training_time,
         "config": {
             "model_name": model_name,
             "learning_rate": learning_rate,
@@ -284,13 +350,23 @@ def train_phasenet_mag(
     torch.save(history, history_path)
     print(f"Training history saved: {history_path}")
 
-    print("\nTraining completed!")
+    # Print final summary
+    print("\n" + "=" * 50)
+    print("TRAINING COMPLETED")
+    print("=" * 50)
     print(f"Best validation loss: {best_val_loss:.6f}")
+    print(f"Best validation RMSE: {best_val_loss**0.5:.6f}")
+    print(f"Final train loss: {train_losses[-1]:.6f}")
+    print(f"Final val loss: {val_losses[-1]:.6f}")
+    print(f"Total training time: {hours:02d}h {minutes:02d}m {seconds:02d}s")
+    print("=" * 50)
 
     return {
         "best_val_loss": best_val_loss,
         "train_losses": train_losses,
         "val_losses": val_losses,
+        "train_maes": train_maes,
+        "val_maes": val_maes,
         "save_dir": save_dir,
     }
 

@@ -10,13 +10,9 @@ from seisbench.util import worker_seeding
 
 from my_project.utils.utils import (
     plot_magnitude_distribution,
-    dump_metadata_to_csv,
     plot_samples,
 )
-from my_project.loaders.magnitude_labellers import (
-    MagnitudeLabeller,
-    MagnitudeLabellerAMAG,
-)
+from my_project.loaders.magnitude_labellers import MagnitudeLabeller
 from my_project.models.phasenet_mag.model import PhaseNetMag
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
@@ -24,6 +20,8 @@ from my_project.models.AMAG_v2.model import MagnitudeNet
 from my_project.models.EQTransformer.model import EQTransformerMag
 from my_project.models.ViT.model import ViTMagnitudeEstimator
 from my_project.models.UMamba_mag.model import UMambaMag
+from my_project.models.UMamba_mag_v2.model import UMambaMag as UMambaMagV2
+from my_project.models.UMamba_mag_v3.model import UMambaMag as UMambaMagV3
 
 # Only training for S and P picks, map the labels
 phase_dict = {
@@ -136,8 +134,8 @@ def load_dataset(
 
     if isinstance(model, (PhaseNetMag, MagnitudeNet)):
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3000))
-    elif isinstance(model, (EQTransformerMag, ViTMagnitudeEstimator, UMambaMag)):
-        # EQTransformerMag, ViT, and UMamba use 30-second windows (3001 samples at 100Hz)
+    elif isinstance(model, (EQTransformerMag, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3)):
+        # EQTransformerMag, ViT, UMamba V1, V2 and V3 use 30-second windows (3001 samples at 100Hz)
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3001))
     elif isinstance(model, (sbm.PhaseNet, PhaseNetLSTM, PhaseNetConvLSTM)):
         ds_generator.add_augmentations(get_phase_augmentation())

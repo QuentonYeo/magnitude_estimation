@@ -9,18 +9,18 @@ import seisbench.data as sbd
 from seisbench.models.base import WaveformModel
 from tqdm import tqdm
 
-from my_project.models.AMAG_v2.model import MagnitudeNet
+from my_project.models.UMamba_mag_v2.model import UMambaMag
 from my_project.loaders import data_loader as dl
 
 
-def train_magnitude_net(
+def train_umamba_mag_v2(
     model_name: str,
     model: WaveformModel,
     data: sbd.BenchmarkDataset,
     learning_rate: float = 1e-3,
     epochs: int = 50,
-    batch_size: int = 256,
-    optimizer_name: str = "Adam",
+    batch_size: int = 64,  # Smaller batch size due to Mamba complexity
+    optimizer_name: str = "AdamW",
     weight_decay: float = 1e-5,
     scheduler_patience: int = 5,
     scheduler_factor: float = 0.5,
@@ -31,46 +31,57 @@ def train_magnitude_net(
     quiet: bool = False,
 ):
     """
-    Train MagnitudeNet model for magnitude regression.
+    Train UMambaMag V2 model for magnitude regression.
 
     Args:
         model_name: Name for saving model checkpoints
-        model: MagnitudeNet model instance
+        model: UMambaMag V2 model instance
         data: Dataset to train on
         learning_rate: Learning rate for optimizer
         epochs: Number of training epochs
-        batch_size: Batch size for training
+        batch_size: Batch size for training (smaller for Mamba)
         optimizer_name: Optimizer type ("Adam", "AdamW", or "SGD")
         weight_decay: Weight decay for optimizer
         scheduler_patience: Patience for learning rate scheduler
         scheduler_factor: Factor to reduce learning rate by
         save_every: Save model every N epochs
         gradient_clip: Maximum gradient norm (None to disable)
-        early_stopping_patience: Stop training if no improvement for N epochs
+        early_stopping_patience: Epochs to wait before early stopping
         warmup_epochs: Number of epochs for learning rate warmup
         quiet: If True, disable tqdm progress bars
     """
-    print("\n" + "=" * 50)
-    print("TRAINING MAGNITUDENET")
-    print("=" * 50)
+    print("\n" + "=" * 60)
+    print("TRAINING UMAMBAMAG V2 (ENCODER-ONLY WITH POOLING)")
+    print("=" * 60)
     print(f"Model: {model_name}")
     print(f"Dataset: {data.__class__.__name__}")
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate}")
     print(f"Epochs: {epochs}")
-    print("=" * 50)
+    print(f"Warmup epochs: {warmup_epochs}")
+    print("=" * 60)
 
     # Get the device where the model is already placed
     device = next(model.parameters()).device
     print(f"Model is on device: {device}")
 
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+
     # Load data
+    print(f"\nLoading data...")
     train_generator, train_loader, _ = dl.load_dataset(
         data, model, "train", batch_size=batch_size
     )
     dev_generator, dev_loader, _ = dl.load_dataset(
         data, model, "dev", batch_size=batch_size
     )
+
+    print(f"Train batches: {len(train_loader)}")
+    print(f"Dev batches: {len(dev_loader)}")
 
     # Setup optimizer
     if optimizer_name == "Adam":
@@ -79,7 +90,11 @@ def train_magnitude_net(
         )
     elif optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay,
+            betas=(0.9, 0.999),
+            eps=1e-8,
         )
     elif optimizer_name == "SGD":
         optimizer = torch.optim.SGD(
@@ -94,13 +109,11 @@ def train_magnitude_net(
     # Loss function - MSE for regression
     criterion = nn.MSELoss()
 
-    # Alternative loss functions you might want to try:
-    # criterion = nn.L1Loss()  # MAE - more robust to outliers
-    # criterion = nn.HuberLoss()  # Robust to outliers
+    # Learning rate scheduler with warmup and decay
+    base_lr = learning_rate
 
-    # Learning rate scheduler with warmup (LambdaLR) and ReduceLROnPlateau for decay
     def warmup_lambda(epoch):
-        # from 10% -> 100% linearly over warmup_epochs
+        # Warmup from 10% to 100% linearly over warmup_epochs
         if epoch < warmup_epochs:
             return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
         return 1.0
@@ -118,7 +131,7 @@ def train_magnitude_net(
         verbose=True,
     )
 
-    def train_loop(dataloader):
+    def train_loop(dataloader, epoch):
         """Training loop for one epoch."""
         model.train()
         total_loss = 0
@@ -132,22 +145,22 @@ def train_magnitude_net(
         for batch in pbar:
             # Get input and target
             x = batch["X"].to(device)
-            y_true = batch["magnitude"].to(device)  # Target magnitudes
+            y_true = batch["magnitude"].to(device)
 
-            # Handle different target shapes
-            if y_true.dim() == 1:
-                # If shape is (batch,), expand to (batch, samples)
-                y_true = y_true.unsqueeze(1).expand(-1, x.shape[-1])
-            elif y_true.dim() == 2 and y_true.shape[1] == 1:
-                # If shape is (batch, 1), expand to (batch, samples)
-                y_true = y_true.expand(-1, x.shape[-1])
+            # Handle target shape - should be (batch,) for scalar regression
+            if y_true.dim() == 2:
+                # If shape is (batch, samples), take mean or first value
+                y_true = y_true.mean(dim=1)  # Average across time for single magnitude
+            
+            # Ensure y_true is 1D: (batch,)
+            y_true = y_true.squeeze()
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
-            y_pred = model(x_preproc)  # Shape: (batch, 1, samples)
+            y_pred = model(x_preproc)  # Should output (batch,)
 
-            # Reshape for loss calculation
-            y_pred = y_pred.squeeze(1)  # Remove channel dim: (batch, samples)
+            # Ensure y_pred is also 1D
+            y_pred = y_pred.squeeze()
 
             # Calculate loss
             loss = criterion(y_pred, y_true)
@@ -159,17 +172,19 @@ def train_magnitude_net(
             # Gradient clipping
             grad_norm = 0.0
             if gradient_clip is not None:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), gradient_clip
+                )
 
             optimizer.step()
 
             # Track metrics
             batch_loss = loss.item()
             total_loss += batch_loss
+            total_mse += batch_loss
             with torch.no_grad():
                 mae = torch.abs(y_pred - y_true).mean().item()
                 total_mae += mae
-                total_mse += batch_loss
 
             # Update progress bar
             pbar.set_postfix({
@@ -201,16 +216,20 @@ def train_magnitude_net(
                 x = batch["X"].to(device)
                 y_true = batch["magnitude"].to(device)
 
-                # Handle different target shapes
-                if y_true.dim() == 1:
-                    y_true = y_true.unsqueeze(1).expand(-1, x.shape[-1])
-                elif y_true.dim() == 2 and y_true.shape[1] == 1:
-                    y_true = y_true.expand(-1, x.shape[-1])
+                # Handle target shape - should be (batch,) for scalar regression
+                if y_true.dim() == 2:
+                    # If shape is (batch, samples), take mean or first value
+                    y_true = y_true.mean(dim=1)  # Average across time for single magnitude
+                
+                # Ensure y_true is 1D: (batch,)
+                y_true = y_true.squeeze()
 
                 # Forward pass
                 x_preproc = model.annotate_batch_pre(x, {})
-                y_pred = model(x_preproc)
-                y_pred = y_pred.squeeze(1)
+                y_pred = model(x_preproc)  # Should output (batch,)
+                
+                # Ensure y_pred is also 1D
+                y_pred = y_pred.squeeze()
 
                 # Calculate metrics
                 loss = criterion(y_pred, y_true)
@@ -218,8 +237,8 @@ def train_magnitude_net(
 
                 batch_loss = loss.item()
                 total_loss += batch_loss
-                total_mae += mae.item()
                 total_mse += batch_loss
+                total_mae += mae.item()
                 
                 # Update progress bar
                 pbar.set_postfix({
@@ -231,7 +250,7 @@ def train_magnitude_net(
         avg_mae = total_mae / num_batches
         avg_mse = total_mse / num_batches
         avg_rmse = avg_mse ** 0.5
-
+        
         return avg_loss, avg_mae, avg_mse, avg_rmse
 
     # Create save directory with timestamp
@@ -248,21 +267,23 @@ def train_magnitude_net(
     val_maes = []
     learning_rates = []
     epochs_without_improvement = 0
-    
-    # Track total training time
+
     training_start_time = time.time()
 
     for epoch in range(epochs):
-        print(f"\n{'='*50}")
+        print(f"\n{'='*60}")
         print(f"Epoch {epoch + 1}/{epochs}")
-        print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
-        print(f"{'='*50}")
+
+        # Report current learning rate
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"Learning Rate: {current_lr:.2e}")
+        print(f"{'='*60}")
 
         # Train
-        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader)
+        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader, epoch)
         train_losses.append(train_loss)
         train_maes.append(train_mae)
-        learning_rates.append(optimizer.param_groups[0]["lr"])
+        learning_rates.append(current_lr)
 
         # Validate
         val_loss, val_mae, val_mse, val_rmse = validation_loop(dev_loader)
@@ -270,17 +291,16 @@ def train_magnitude_net(
         val_maes.append(val_mae)
 
         # Print epoch summary
-        print(f"\n{'='*50}")
-        print(f"Epoch {epoch + 1}/{epochs} Summary")
-        print(f"{'='*50}")
-        print(f"Training   -> Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
-        print(f"Validation -> Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
-        print(f"{'='*50}")
+        print(f"\n{'='*60}")
+        print(f"Epoch {epoch + 1} Summary:")
+        print(f"  Train - Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
+        print(f"  Val   - Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
+        print(f"{'='*60}")
 
-        # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
+        # Step warmup scheduler
         warmup_scheduler.step()
 
-        # Learning rate scheduling (ReduceLROnPlateau) after warmup
+        # Step reduce scheduler after warmup
         if epoch >= warmup_epochs:
             reduce_scheduler.step(val_loss)
 
@@ -296,6 +316,7 @@ def train_magnitude_net(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": val_loss,
                     "val_mae": val_mae,
+                    "best_val_loss": best_val_loss,
                     "config": {
                         "model_name": model_name,
                         "learning_rate": learning_rate,
@@ -304,8 +325,10 @@ def train_magnitude_net(
                         "optimizer": optimizer_name,
                         "weight_decay": weight_decay,
                         "scheduler_patience": scheduler_patience,
+                        "scheduler_factor": scheduler_factor,
                         "gradient_clip": gradient_clip,
                         "early_stopping_patience": early_stopping_patience,
+                        "warmup_epochs": warmup_epochs,
                     },
                 },
                 best_model_path,
@@ -341,8 +364,10 @@ def train_magnitude_net(
                         "optimizer": optimizer_name,
                         "weight_decay": weight_decay,
                         "scheduler_patience": scheduler_patience,
+                        "scheduler_factor": scheduler_factor,
                         "gradient_clip": gradient_clip,
                         "early_stopping_patience": early_stopping_patience,
+                        "warmup_epochs": warmup_epochs,
                     },
                 },
                 checkpoint_path,
@@ -366,20 +391,15 @@ def train_magnitude_net(
                 "optimizer": optimizer_name,
                 "weight_decay": weight_decay,
                 "scheduler_patience": scheduler_patience,
+                "scheduler_factor": scheduler_factor,
                 "gradient_clip": gradient_clip,
                 "early_stopping_patience": early_stopping_patience,
+                "warmup_epochs": warmup_epochs,
             },
         },
         final_model_path,
     )
     print(f"\nFinal model saved: {final_model_path}")
-
-    # Calculate total training time
-    training_end_time = time.time()
-    total_training_time = training_end_time - training_start_time
-    hours = int(total_training_time // 3600)
-    minutes = int((total_training_time % 3600) // 60)
-    seconds = int(total_training_time % 60)
 
     # Save training history
     history = {
@@ -389,7 +409,6 @@ def train_magnitude_net(
         "val_maes": val_maes,
         "learning_rates": learning_rates,
         "best_val_loss": best_val_loss,
-        "total_training_time": total_training_time,
         "config": {
             "model_name": model_name,
             "learning_rate": learning_rate,
@@ -398,24 +417,33 @@ def train_magnitude_net(
             "optimizer": optimizer_name,
             "weight_decay": weight_decay,
             "scheduler_patience": scheduler_patience,
+            "scheduler_factor": scheduler_factor,
             "gradient_clip": gradient_clip,
             "early_stopping_patience": early_stopping_patience,
+            "warmup_epochs": warmup_epochs,
         },
     }
     history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
     torch.save(history, history_path)
     print(f"Training history saved: {history_path}")
 
+    # Calculate and display total training time
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    hours = int(total_training_time // 3600)
+    minutes = int((total_training_time % 3600) // 60)
+    seconds = int(total_training_time % 60)
+
     # Print final summary
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print("TRAINING COMPLETED")
-    print("=" * 50)
+    print("=" * 60)
     print(f"Best validation loss: {best_val_loss:.6f}")
     print(f"Best validation RMSE: {best_val_loss**0.5:.6f}")
     print(f"Final train loss: {train_losses[-1]:.6f}")
     print(f"Final val loss: {val_losses[-1]:.6f}")
-    print(f"Total training time: {hours:02d}h {minutes:02d}m {seconds:02d}s")
-    print("=" * 50)
+    print(f"Total Training Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
+    print("=" * 60)
 
     return history
 
@@ -427,7 +455,7 @@ def load_checkpoint(
     Load a saved checkpoint.
 
     Args:
-        model: MagnitudeNet model instance
+        model: UMambaMag V2 model instance
         checkpoint_path: Path to checkpoint file
         optimizer: Optional optimizer to load state
         device: Device to load model on
@@ -452,30 +480,38 @@ def load_checkpoint(
 # Example usage
 if __name__ == "__main__":
 
-    # Initialize model
-    model = MagnitudeNet(
+    # Initialize model (V2 - encoder-only with pooling)
+    model = UMambaMag(
         in_channels=3,
         sampling_rate=100,
-        filter_factor=1,
-        lstm_hidden=128,
-        lstm_layers=2,
-        dropout=0.2,
+        norm="std",
+        n_stages=4,
+        features_per_stage=[8, 16, 32, 64],
+        kernel_size=7,
+        strides=[2, 2, 2, 2],
+        n_blocks_per_stage=2,
+        pooling_type="avg",  # V2-specific: avg or max pooling
+        hidden_dims=[128, 64],  # V2-specific: regression head layers
+        dropout=0.3,  # V2-specific: dropout rate
     )
 
     # Load dataset
-    data = sbd.ETHZ(sampling_rate=100)
+    data = sbd.STEAD(sampling_rate=100)
 
     # Train model
-    history = train_magnitude_net(
-        model_name="magnitudenet_v1",
+    history = train_umamba_mag_v2(
+        model_name="UMambaMag_STEAD",
         model=model,
         data=data,
         learning_rate=1e-3,
-        epochs=50,
-        batch_size=256,
+        epochs=150,
+        batch_size=64,
         optimizer_name="AdamW",
         weight_decay=1e-5,
-        scheduler_patience=5,
+        scheduler_patience=7,
+        scheduler_factor=0.5,
         save_every=5,
         gradient_clip=1.0,
+        early_stopping_patience=15,
+        warmup_epochs=5,
     )

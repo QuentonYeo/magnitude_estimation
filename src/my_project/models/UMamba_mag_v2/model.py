@@ -125,34 +125,32 @@ class BasicResBlock(nn.Module):
         return self.act2(y)
 
 
-class UpsampleLayer(nn.Module):
+class LearnablePooling(nn.Module):
     """
-    Upsampling layer using interpolation followed by 1x1 convolution.
+    Learnable pooling that maintains linear time complexity.
+    
+    Uses element-wise gating (linear time) instead of attention (quadratic).
+    Each channel learns its own importance weighting across time.
     
     Args:
-        conv_op: Convolution operation
-        input_channels: Number of input channels
-        output_channels: Number of output channels
-        pool_op_kernel_size: Upsampling factor
-        mode: Interpolation mode
+        in_channels: Number of input channels
     """
-    def __init__(
-        self,
-        conv_op,
-        input_channels,
-        output_channels,
-        pool_op_kernel_size,
-        mode='nearest'
-    ):
+    def __init__(self, in_channels):
         super().__init__()
-        self.conv = conv_op(input_channels, output_channels, kernel_size=1)
-        self.pool_op_kernel_size = pool_op_kernel_size
-        self.mode = mode
-        
+        # Gate learns channel-wise importance without cross-time attention
+        self.gate = nn.Sequential(
+            nn.Conv1d(in_channels, in_channels, 1),
+            nn.Sigmoid()
+        )
+    
     def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=self.pool_op_kernel_size, mode=self.mode)
-        x = self.conv(x)
-        return x
+        # x: (batch, channels, time)
+        # Element-wise gating - O(n) not O(n²)
+        weights = self.gate(x)  # (batch, channels, time)
+        weighted = x * weights
+        # Sum over time dimension
+        pooled = weighted.mean(dim=-1)  # (batch, channels)
+        return pooled
 
 
 class UMambaEncoder(nn.Module):
@@ -344,159 +342,31 @@ class UMambaEncoder(nn.Module):
             return ret[-1]
 
 
-class UMambaDecoder(nn.Module):
-    """
-    U-Mamba decoder with skip connections and upsampling.
-    
-    Args:
-        encoder: The encoder module
-        num_classes: Number of output classes/channels
-        n_conv_per_stage: Number of convolutions per decoder stage
-        deep_supervision: Whether to output predictions at multiple scales
-    """
-    def __init__(
-        self,
-        encoder,
-        num_classes,
-        n_conv_per_stage: Union[int, Tuple[int, ...], List[int]],
-        deep_supervision: bool = False,
-    ):
-        super().__init__()
-        self.deep_supervision = deep_supervision
-        self.encoder = encoder
-        self.num_classes = num_classes
-        
-        n_stages_encoder = len(encoder.output_channels)
-        if isinstance(n_conv_per_stage, int):
-            n_conv_per_stage = [n_conv_per_stage] * (n_stages_encoder - 1)
-        
-        stages = []
-        upsample_layers = []
-        seg_layers = []
-        
-        for s in range(1, n_stages_encoder):
-            input_features_below = encoder.output_channels[-s]
-            input_features_skip = encoder.output_channels[-(s + 1)]
-            stride_for_upsampling = encoder.strides[-s]
-            
-            # Upsampling layer
-            upsample_layers.append(
-                UpsampleLayer(
-                    conv_op=encoder.conv_op,
-                    input_channels=input_features_below,
-                    output_channels=input_features_skip,
-                    pool_op_kernel_size=stride_for_upsampling,
-                    mode='nearest'
-                )
-            )
-            
-            # Decoder stage with residual blocks
-            stage_blocks = [
-                BasicResBlock(
-                    conv_op=encoder.conv_op,
-                    norm_op=encoder.norm_op,
-                    norm_op_kwargs=encoder.norm_op_kwargs,
-                    nonlin=encoder.nonlin,
-                    nonlin_kwargs=encoder.nonlin_kwargs,
-                    input_channels=2 * input_features_skip if s < n_stages_encoder - 1 else input_features_skip,
-                    output_channels=input_features_skip,
-                    kernel_size=encoder.kernel_sizes[-(s + 1)],
-                    padding=encoder.conv_pad_sizes[-(s + 1)],
-                    stride=1,
-                    use_1x1conv=True
-                )
-            ]
-            
-            # Additional residual blocks
-            for _ in range(n_conv_per_stage[s - 1] - 1):
-                stage_blocks.append(
-                    BasicResBlock(
-                        conv_op=encoder.conv_op,
-                        input_channels=input_features_skip,
-                        output_channels=input_features_skip,
-                        kernel_size=encoder.kernel_sizes[-(s + 1)],
-                        padding=encoder.conv_pad_sizes[-(s + 1)],
-                        stride=1,
-                        use_1x1conv=False,
-                        norm_op=encoder.norm_op,
-                        norm_op_kwargs=encoder.norm_op_kwargs,
-                        nonlin=encoder.nonlin,
-                        nonlin_kwargs=encoder.nonlin_kwargs,
-                    )
-                )
-            
-            stages.append(nn.Sequential(*stage_blocks))
-            seg_layers.append(encoder.conv_op(input_features_skip, num_classes, 1, 1, 0, bias=True))
-
-        self.stages = nn.ModuleList(stages)
-        self.upsample_layers = nn.ModuleList(upsample_layers)
-        self.seg_layers = nn.ModuleList(seg_layers)
-
-    def forward(self, skips):
-        lres_input = skips[-1]
-        seg_outputs = []
-        
-        for s in range(len(self.stages)):
-            x = self.upsample_layers[s](lres_input)
-            if s < (len(self.stages) - 1):
-                skip = skips[-(s + 2)]
-                # Handle size mismatch by cropping or padding
-                if x.shape[-1] != skip.shape[-1]:
-                    if x.shape[-1] > skip.shape[-1]:
-                        # Crop x to match skip
-                        diff = x.shape[-1] - skip.shape[-1]
-                        x = x[..., diff // 2 : -(diff - diff // 2)]
-                    else:
-                        # Pad x to match skip
-                        diff = skip.shape[-1] - x.shape[-1]
-                        x = nn.functional.pad(x, (diff // 2, diff - diff // 2))
-                x = torch.cat((x, skip), 1)
-            x = self.stages[s](x)
-            
-            if self.deep_supervision:
-                seg_outputs.append(self.seg_layers[s](x))
-            elif s == (len(self.stages) - 1):
-                seg_outputs.append(self.seg_layers[-1](x))
-            
-            lres_input = x
-
-        seg_outputs = seg_outputs[::-1]
-
-        if not self.deep_supervision:
-            r = seg_outputs[0]
-        else:
-            r = seg_outputs
-        return r
-
-
 class UMambaMag(WaveformModel):
     """
     UMamba architecture adapted for seismic magnitude regression.
     
     This model combines residual blocks with Mamba layers (state space models)
-    for processing seismic waveforms. Unlike a U-Net decoder, this uses
-    encoder-only architecture with global pooling for magnitude regression.
+    for processing seismic waveforms. The architecture uses an encoder-only
+    structure with global pooling for magnitude regression.
     
     Key features:
     - Residual blocks for local feature extraction
     - Mamba layers for long-range temporal modeling
-    - Encoder-only architecture for efficient feature extraction
-    - Global pooling + MLP head for magnitude regression
-    - Single scalar output per waveform
+    - Rooling for temporal aggregation
+    - Regression head for magnitude prediction
     
     Args:
         in_channels: Number of input channels (default: 3 for 3-component seismogram)
         sampling_rate: Sampling rate in Hz (default: 100)
-        norm: Normalization method - 'std' for standardization, 'peak' for peak normalization
+        norm: Normalization method - 'std' for standardization, 'peak' for peak normalization, 'none' for no normalization
         n_stages: Number of encoder stages (default: 4)
         features_per_stage: Number of features at each stage (default: [8, 16, 32, 64])
         kernel_size: Kernel size for convolutions (default: 7)
         strides: Downsampling strides for each stage (default: [2, 2, 2, 2])
         n_blocks_per_stage: Number of residual blocks per stage (default: 2)
-        n_conv_per_stage_decoder: Number of convolutions per decoder stage (deprecated, kept for compatibility)
-        deep_supervision: Whether to use deep supervision (deprecated, kept for compatibility)
-        pooling_type: Type of global pooling ('avg' or 'max', default: 'avg')
-        hidden_dims: List of hidden dimensions for regression head (default: [128, 64])
+        pooling_type: Type of pooling - 'avg', or 'max' (default: 'avg')
+        hidden_dims: Hidden dimensions for regression head (default: [128, 64])
         dropout: Dropout rate for regression head (default: 0.3)
     """
     
@@ -513,8 +383,6 @@ class UMambaMag(WaveformModel):
         kernel_size: int = 7,
         strides: List[int] = None,
         n_blocks_per_stage: int = 2,
-        n_conv_per_stage_decoder: int = 2,  # Deprecated
-        deep_supervision: bool = False,  # Deprecated
         pooling_type: str = "avg",
         hidden_dims: List[int] = None,
         dropout: float = 0.3,
@@ -531,7 +399,7 @@ class UMambaMag(WaveformModel):
         super().__init__(
             citation=citation,
             in_samples=3001,
-            output_type="scalar",  # Changed from "array" to "scalar"
+            output_type="scalar",  # Fixed: V2 outputs scalar, not array
             pred_sample=(0, 3001),
             labels=["magnitude"],
             sampling_rate=sampling_rate,
@@ -558,10 +426,6 @@ class UMambaMag(WaveformModel):
         self.n_blocks_per_stage = n_blocks_per_stage
         self.hidden_dims = hidden_dims
 
-        # Deprecated parameters (kept for backward compatibility)
-        self.n_conv_per_stage_decoder = n_conv_per_stage_decoder
-        self.deep_supervision = deep_supervision
-
         # Build encoder
         self.encoder = UMambaEncoder(
             input_size=(3001,),  # 1D input
@@ -577,35 +441,35 @@ class UMambaMag(WaveformModel):
             norm_op_kwargs={'eps': 1e-5, 'affine': True},
             nonlin=nn.LeakyReLU,
             nonlin_kwargs={'inplace': True},
-            return_skips=True,
+            return_skips=False,  # Don't need skips for regression
             stem_channels=features_per_stage[0],
         )
 
         # Global pooling layer
+        encoder_output_channels = features_per_stage[-1]
         if pooling_type == "avg":
-            self.global_pool = nn.AdaptiveAvgPool1d(1)
+            self.pooling = nn.AdaptiveAvgPool1d(1)
         elif pooling_type == "max":
-            self.global_pool = nn.AdaptiveMaxPool1d(1)
+            self.pooling = nn.AdaptiveMaxPool1d(1)
         else:
-            raise ValueError(f"Unknown pooling_type: {pooling_type}")
+            raise ValueError(f"Unknown pooling type: {pooling_type}")
 
-        # Regression head
-        encoder_out_channels = features_per_stage[-1]
-        layers = []
-        in_features = encoder_out_channels
+        # Build regression head
+        regression_layers = []
+        in_features = encoder_output_channels
         
         for hidden_dim in hidden_dims:
-            layers.extend([
+            regression_layers.extend([
                 nn.Linear(in_features, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout)
+                nn.LeakyReLU(inplace=True),
+                nn.Dropout(dropout),
             ])
             in_features = hidden_dim
         
         # Final output layer
-        layers.append(nn.Linear(in_features, 1))
+        regression_layers.append(nn.Linear(in_features, 1))
         
-        self.regression_head = nn.Sequential(*layers)
+        self.regression_head = nn.Sequential(*regression_layers)
 
     def forward(self, x):
         """
@@ -615,32 +479,29 @@ class UMambaMag(WaveformModel):
             x: Input tensor of shape (batch, channels, samples)
             
         Returns:
-            Magnitude predictions of shape (batch,) - scalar per sample
+            Magnitude predictions of shape (batch,)
         """
-        # Encoder forward pass (returns list of skip connections)
-        skips = self.encoder(x)
+        # Encode
+        features = self.encoder(x)  # (batch, channels, temporal)
         
-        # Use the final (deepest) encoder output
-        features = skips[-1]  # Shape: (batch, channels, reduced_samples)
+        # Pool
+        pooled = self.pooling(features).squeeze(-1)  # (batch, channels)
         
-        # Global pooling
-        pooled = self.global_pool(features)  # Shape: (batch, channels, 1)
-        pooled = pooled.squeeze(-1)  # Shape: (batch, channels)
+        # Regress
+        magnitude = self.regression_head(pooled)  # (batch, 1)
         
-        # Regression head
-        output = self.regression_head(pooled)  # Shape: (batch, 1)
-        output = output.squeeze(-1)  # Shape: (batch,)
-        
-        return output
+        return magnitude.squeeze(-1)  # (batch,)
 
     def annotate_batch_pre(
         self, batch: torch.Tensor, argdict: dict[str, Any]
     ) -> torch.Tensor:
         """
-        Preprocessing: center and normalize the batch.
+        Preprocessing: center and optionally normalize the batch.
         
-        This follows the same normalization strategy as PhaseNetMag to ensure
-        consistent input scaling.
+        Options:
+        - 'std': Standardize by standard deviation
+        - 'peak': Normalize by peak amplitude
+        - 'none': Only center (remove mean)
         """
         batch = batch - batch.mean(axis=-1, keepdims=True)
 
@@ -649,6 +510,10 @@ class UMambaMag(WaveformModel):
         elif self.norm == "peak":
             peak = batch.abs().max(axis=-1, keepdims=True)[0]
             batch = batch / (peak + 1e-10)
+        elif self.norm == "none":
+            pass  # Only centered
+        else:
+            raise ValueError(f"Unknown normalization: {self.norm}")
 
         return batch
 
@@ -658,8 +523,7 @@ class UMambaMag(WaveformModel):
         """
         Post-processing: ensure output is in correct shape.
         
-        For scalar output, no transposition needed - just return as is.
-        Output shape: (batch,) - one magnitude value per sample
+        For scalar output, just return as is - shape (batch,)
         """
         return batch
 
@@ -692,8 +556,6 @@ class UMambaMag(WaveformModel):
         model_args["kernel_size"] = self.kernel_size
         model_args["strides"] = self.strides
         model_args["n_blocks_per_stage"] = self.n_blocks_per_stage
-        model_args["n_conv_per_stage_decoder"] = self.n_conv_per_stage_decoder
-        model_args["deep_supervision"] = self.deep_supervision
         model_args["pooling_type"] = self.pooling_type
         model_args["hidden_dims"] = self.hidden_dims
         model_args["dropout"] = self.dropout

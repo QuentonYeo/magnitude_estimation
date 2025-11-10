@@ -125,7 +125,7 @@ def train_phasenet(
     data: BenchmarkDataset,
     learning_rate=1e-2,
     epochs=5,
-    early_stopping_patience=10,
+    early_stopping_patience=5,
 ):
     train_generator, train_loader, _ = dl.load_dataset(data, model, "train")
     dev_generator, dev_loader, _ = dl.load_dataset(data, model, "dev")

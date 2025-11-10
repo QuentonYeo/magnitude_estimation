@@ -1,9 +1,11 @@
 import os
 import argparse
+import time
 import torch
 import torch.nn as nn
 from datetime import datetime
 from typing import Optional
+from tqdm import tqdm
 
 import seisbench.data as sbd
 from my_project.models.ViT.model import ViTMagnitudeEstimator
@@ -14,17 +16,18 @@ def train_vit_magnitude(
     model_name: str,
     model: ViTMagnitudeEstimator,
     data: sbd.BenchmarkDataset,
-    learning_rate: float = 1e-4,  # Lower LR typical for transformers
+    learning_rate: float = 1e-3,  # Lower LR typical for transformers
     epochs: int = 100,
     batch_size: int = 64,  # Smaller batch size for ViT due to memory
     optimizer_name: str = "AdamW",
     weight_decay: float = 1e-2,  # Higher weight decay for transformers
     scheduler_patience: int = 10,
     scheduler_factor: float = 0.5,
-    save_every: int = 10,
+    save_every: int = 5,
     gradient_clip: Optional[float] = 1.0,
-    early_stopping_patience: int = 20,
-    warmup_epochs: int = 10,  # Longer warmup for transformers
+    early_stopping_patience: int = 5,
+    warmup_epochs: int = 5,  # Longer warmup for transformers
+    quiet: bool = False,
 ):
     """
     Train ViTMagnitudeEstimator model for magnitude regression.
@@ -44,6 +47,7 @@ def train_vit_magnitude(
         gradient_clip: Maximum gradient norm (None to disable)
         early_stopping_patience: Stop training if no improvement for N epochs
         warmup_epochs: Number of epochs for learning rate warmup (longer for transformers)
+        quiet: If True, disable tqdm progress bars
     """
     print("\n" + "=" * 60)
     print("TRAINING VISION TRANSFORMER FOR MAGNITUDE ESTIMATION")
@@ -58,10 +62,7 @@ def train_vit_magnitude(
     print(f"Gradient clipping: {gradient_clip}")
     print("=" * 60)
 
-    # Move model to device
-    model.to_preferred_device(verbose=True)
-
-    # Get the actual device where the model ended up
+    # Get the device where the model is already placed
     device = next(model.parameters()).device
     print(f"Model is on device: {device}")
 
@@ -140,21 +141,34 @@ def train_vit_magnitude(
         """Training loop for one epoch"""
         model.train()
         total_loss = 0
+        total_mae = 0
+        total_mse = 0
         num_batches = len(dataloader)
 
-        for batch_id, batch in enumerate(dataloader):
+        # Create progress bar
+        pbar = tqdm(dataloader, desc="Training", leave=False, disable=quiet)
+        
+        for batch in pbar:
             # Get input and target
             x = batch["X"].to(device)
             y_true = batch["magnitude"].to(device)  # Target magnitudes
 
+            # Handle target shape - should be (batch,) for scalar regression
+            if y_true.dim() == 2:
+                # If shape is (batch, samples), take mean or first value
+                y_true = y_true.mean(dim=1)  # Average across time for single magnitude
+            
+            # Ensure y_true is 1D: (batch,)
+            y_true = y_true.squeeze()
+
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
-            y_pred = model(x_preproc)  # Shape: (batch, 1, 3001)
+            y_pred = model(x_preproc)  # Should output (batch,)
 
-            # Reshape for loss calculation - same as PhaseNetMag
-            y_pred = y_pred.squeeze(1)  # Remove channel dimension: (batch, 3001)
+            # Ensure y_pred is also 1D
+            y_pred = y_pred.squeeze()
 
-            # Calculate loss - same as PhaseNetMag
+            # Calculate loss
             loss = criterion(y_pred, y_true)
 
             # Backward pass
@@ -162,48 +176,86 @@ def train_vit_magnitude(
             loss.backward()
 
             # Gradient clipping
+            grad_norm = 0.0
             if gradient_clip is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
 
             optimizer.step()
 
-            total_loss += loss.item()
+            batch_loss = loss.item()
+            total_loss += batch_loss
+            total_mse += batch_loss
+            
+            with torch.no_grad():
+                mae = torch.abs(y_pred - y_true).mean().item()
+                total_mae += mae
 
-            # Progress logging
-            if batch_id % 20 == 0:
-                current = batch_id * x.shape[0]
-                print(
-                    f"loss: {loss.item():>7f}  [{current:>5d}/{len(dataloader.dataset):>5d}] "
-                    f"LR: {optimizer.param_groups[0]['lr']:.2e}"
-                )
+            # Update progress bar
+            pbar.set_postfix({
+                'loss': f'{batch_loss:.4f}',
+                'mae': f'{mae:.4f}',
+                'grad': f'{grad_norm:.2f}' if gradient_clip else 'N/A'
+            })
 
-        return total_loss / num_batches
+        avg_loss = total_loss / num_batches
+        avg_mae = total_mae / num_batches
+        avg_mse = total_mse / num_batches
+        avg_rmse = avg_mse ** 0.5
+        
+        return avg_loss, avg_mae, avg_mse, avg_rmse
 
     def validation_loop(dataloader):
         """Validation loop"""
         model.eval()
         total_loss = 0
+        total_mae = 0
+        total_mse = 0
         num_batches = len(dataloader)
 
+        # Create progress bar
+        pbar = tqdm(dataloader, desc="Validation", leave=False, disable=quiet)
+        
         with torch.no_grad():
-            for batch in dataloader:
+            for batch in pbar:
                 x = batch["X"].to(device)
                 y_true = batch["magnitude"].to(device)
 
+                # Handle target shape - should be (batch,) for scalar regression
+                if y_true.dim() == 2:
+                    # If shape is (batch, samples), take mean or first value
+                    y_true = y_true.mean(dim=1)  # Average across time for single magnitude
+                
+                # Ensure y_true is 1D: (batch,)
+                y_true = y_true.squeeze()
+
                 # Forward pass
                 x_preproc = model.annotate_batch_pre(x, {})
-                y_pred = model(x_preproc)  # Shape: (batch, 1, 3001)
+                y_pred = model(x_preproc)  # Should output (batch,)
+                
+                # Ensure y_pred is also 1D
+                y_pred = y_pred.squeeze()
 
-                # Reshape for loss calculation - same as PhaseNetMag
-                y_pred = y_pred.squeeze(1)  # Remove channel dimension: (batch, 3001)
-
-                # Calculate loss - same as PhaseNetMag
+                # Calculate loss
                 loss = criterion(y_pred, y_true)
-                total_loss += loss.item()
+                mae = torch.abs(y_pred - y_true).mean()
+                
+                batch_loss = loss.item()
+                total_loss += batch_loss
+                total_mse += batch_loss
+                total_mae += mae.item()
+                
+                # Update progress bar
+                pbar.set_postfix({
+                    'loss': f'{batch_loss:.4f}',
+                    'mae': f'{mae.item():.4f}'
+                })
 
         avg_loss = total_loss / num_batches
-        print(f"Validation avg loss: {avg_loss:>8f}")
-        return avg_loss
+        avg_mae = total_mae / num_batches
+        avg_mse = total_mse / num_batches
+        avg_rmse = avg_mse ** 0.5
+        
+        return avg_loss, avg_mae, avg_mse, avg_rmse
 
     # Create save directory with timestamp
     script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -214,8 +266,13 @@ def train_vit_magnitude(
     # Training history
     train_losses = []
     val_losses = []
+    train_maes = []
+    val_maes = []
     best_val_loss = float("inf")
     epochs_without_improvement = 0
+    
+    # Track total training time
+    training_start_time = time.time()
 
     print("\n" + "=" * 60)
     print("STARTING TRAINING")
@@ -223,20 +280,28 @@ def train_vit_magnitude(
 
     # Training loop
     for epoch in range(epochs):
-        print(f"\nEpoch {epoch+1}/{epochs}")
-        print("-" * 30)
+        print(f"\n{'='*60}")
+        print(f"Epoch {epoch+1}/{epochs}")
+        print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.2e}")
+        print(f"{'='*60}")
 
         # Train
-        train_loss = train_loop(train_loader)
+        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader)
         train_losses.append(train_loss)
+        train_maes.append(train_mae)
 
         # Validation
-        val_loss = validation_loop(dev_loader)
+        val_loss, val_mae, val_mse, val_rmse = validation_loop(dev_loader)
         val_losses.append(val_loss)
+        val_maes.append(val_mae)
 
-        print(
-            f"Epoch {epoch+1}: Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}"
-        )
+        # Print epoch summary
+        print(f"\n{'='*60}")
+        print(f"Epoch {epoch+1}/{epochs} Summary")
+        print(f"{'='*60}")
+        print(f"Training   -> Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
+        print(f"Validation -> Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
+        print(f"{'='*60}")
 
         # Learning rate scheduling
         if epoch < warmup_epochs:
@@ -251,7 +316,14 @@ def train_vit_magnitude(
 
             # Save best model
             best_model_path = os.path.join(save_dir, "model_best.pt")
-            torch.save(model.state_dict(), best_model_path)
+            torch.save({
+                "epoch": epoch + 1,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "val_loss": val_loss,
+                "train_loss": train_loss,
+                "best_val_loss": best_val_loss,
+            }, best_model_path)
             print(f"✓ New best model saved (val_loss: {val_loss:.6f})")
         else:
             epochs_without_improvement += 1
@@ -283,7 +355,20 @@ def train_vit_magnitude(
 
     # Save final model
     final_model_path = os.path.join(save_dir, f"model_final_{script_datetime}.pt")
-    torch.save(model.state_dict(), final_model_path)
+    torch.save({
+        "epoch": epoch + 1,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "train_loss": train_losses[-1],
+        "val_loss": val_losses[-1],
+    }, final_model_path)
+
+    # Calculate total training time
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    hours = int(total_training_time // 3600)
+    minutes = int((total_training_time % 3600) // 60)
+    seconds = int(total_training_time % 60)
 
     # Save training history
     history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
@@ -291,8 +376,11 @@ def train_vit_magnitude(
         {
             "train_losses": train_losses,
             "val_losses": val_losses,
+            "train_maes": train_maes,
+            "val_maes": val_maes,
             "best_val_loss": best_val_loss,
             "final_epoch": epoch + 1,
+            "total_training_time": total_training_time,
             "model_config": model.get_model_args(),
             "training_config": {
                 "learning_rate": learning_rate,
@@ -311,14 +399,19 @@ def train_vit_magnitude(
     print("TRAINING COMPLETED")
     print("=" * 60)
     print(f"Best validation loss: {best_val_loss:.6f}")
+    print(f"Best validation RMSE: {best_val_loss**0.5:.6f}")
     print(f"Final training loss: {train_losses[-1]:.6f}")
     print(f"Final validation loss: {val_losses[-1]:.6f}")
     print(f"Total epochs: {epoch + 1}")
+    print(f"Total training time: {hours:02d}h {minutes:02d}m {seconds:02d}s")
     print(f"Models saved in: {save_dir}")
+    print("=" * 60)
 
     return {
         "train_losses": train_losses,
         "val_losses": val_losses,
+        "train_maes": train_maes,
+        "val_maes": val_maes,
         "best_val_loss": best_val_loss,
         "save_dir": save_dir,
         "final_epoch": epoch + 1,

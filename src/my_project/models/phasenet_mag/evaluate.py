@@ -42,8 +42,11 @@ def evaluate_phasenet_mag(
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         # Full checkpoint format
         state_dict = checkpoint["model_state_dict"]
-        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
-        print(f"Validation loss: {checkpoint.get('val_loss', 'N/A')}")
+        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'N/A')}")
+        if "val_loss" in checkpoint:
+            print(f"Checkpoint validation loss: {checkpoint['val_loss']:.6f}")
+        if "best_val_loss" in checkpoint:
+            print(f"Best validation loss: {checkpoint['best_val_loss']:.6f}")
     else:
         # Legacy weights format
         state_dict = checkpoint
@@ -51,23 +54,40 @@ def evaluate_phasenet_mag(
 
     model.load_state_dict(state_dict)
     model.eval()
-    print(f"Loaded model from {model_path}")
+    print(f"Model loaded and set to evaluation mode")
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {total_params:,}")
 
     # Load test data
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
     print(f"Test samples: {len(test_generator)}")
+    print(f"Test batches: {len(test_loader)}")
 
     # Collect all predictions and targets
     all_predictions = []
     all_targets = []
     all_waveforms = []
     sample_indices = []
+    inference_times = []
 
     print("Running evaluation...")
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(test_loader, desc="Evaluating")):
+            # Time the forward pass
+            start_time = (
+                torch.cuda.Event(enable_timing=True) if model.device.type == "cuda" else None
+            )
+            end_time = (
+                torch.cuda.Event(enable_timing=True) if model.device.type == "cuda" else None
+            )
+
+            if start_time is not None:
+                start_time.record()
+
             x = batch["X"].to(model.device)
             y_true = batch["magnitude"].to(model.device)
 
@@ -75,6 +95,14 @@ def evaluate_phasenet_mag(
             x_preproc = model.annotate_batch_pre(x, {})
             y_pred = model(x_preproc)
             y_pred = y_pred.squeeze(1)  # Remove channel dimension
+
+            if end_time is not None:
+                end_time.record()
+                torch.cuda.synchronize()
+                inference_time = (
+                    start_time.elapsed_time(end_time) / 1000.0
+                )  # Convert to seconds
+                inference_times.append(inference_time)
 
             # Move to CPU and convert to numpy
             y_pred_np = y_pred.cpu().numpy()
@@ -113,22 +141,31 @@ def evaluate_phasenet_mag(
     mae = mean_absolute_error(y_true_clean, y_pred_clean)
     r2 = r2_score(y_true_clean, y_pred_clean)
 
-    print("\n" + "=" * 50)
-    print("EVALUATION RESULTS")
-    print("=" * 50)
-    print(f"Test samples: {len(test_generator)}")
+    # Calculate timing metrics
+    avg_inference_time = np.mean(inference_times) if inference_times else 0
+    total_inference_time = np.sum(inference_times) if inference_times else 0
+
+    print("\n" + "=" * 60)
+    print("PHASENETMAG EVALUATION RESULTS")
+    print("=" * 60)
+    print(f"Number of test samples: {len(test_generator)}")
     print(f"Valid predictions: {len(y_true_clean)} / {len(y_true_flat)}")
-    print(f"MSE:  {mse:.6f}")
-    print(f"RMSE: {rmse:.6f}")
-    print(f"MAE:  {mae:.6f}")
-    print(f"R²:   {r2:.6f}")
+    print(f"Model parameters: {total_params:,}")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"R² Score: {r2:.4f}")
+    if inference_times:
+        print(f"Average inference time: {avg_inference_time:.4f}s per batch")
+        print(f"Total inference time: {total_inference_time:.2f}s")
 
     # Calculate magnitude-specific metrics
     unique_mags = np.unique(y_true_clean[y_true_clean > 0])  # Only non-zero magnitudes
     print(
-        f"\nMagnitude range in test set: {unique_mags.min():.2f} - {unique_mags.max():.2f}"
+        f"Magnitude range in test set: {unique_mags.min():.2f} - {unique_mags.max():.2f}"
     )
     print(f"Number of unique magnitudes: {len(unique_mags)}")
+    print("=" * 60)
 
     if plot_examples:
         if output_dir is None:
@@ -153,6 +190,9 @@ def evaluate_phasenet_mag(
         plt.show()
 
     return {
+        "n_samples": len(test_generator),
+        "valid_predictions": len(y_true_clean),
+        "model_params": total_params,
         "mse": mse,
         "rmse": rmse,
         "mae": mae,
@@ -160,6 +200,8 @@ def evaluate_phasenet_mag(
         "predictions": all_predictions,
         "targets": all_targets,
         "waveforms": all_waveforms,
+        "avg_inference_time": avg_inference_time,
+        "total_inference_time": total_inference_time,
     }
 
 

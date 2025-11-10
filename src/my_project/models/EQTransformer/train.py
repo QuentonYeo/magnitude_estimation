@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -6,6 +7,7 @@ import torch
 import torch.nn as nn
 import seisbench.data as sbd
 from seisbench.models.base import WaveformModel
+from tqdm import tqdm
 
 from my_project.models.EQTransformer.model import EQTransformerMag
 from my_project.loaders import data_loader as dl
@@ -24,8 +26,9 @@ def train_eqtransformer_mag(
     scheduler_factor: float = 0.5,
     save_every: int = 5,
     gradient_clip: Optional[float] = 1.0,
-    early_stopping_patience: int = 10,
+    early_stopping_patience: int = 5,
     warmup_epochs: int = 5,  # Transformer benefits from warmup
+    quiet: bool = False,
 ):
     """
     Train EQTransformerMag model for magnitude regression.
@@ -45,6 +48,7 @@ def train_eqtransformer_mag(
         gradient_clip: Maximum gradient norm (None to disable)
         early_stopping_patience: Epochs to wait before early stopping
         warmup_epochs: Number of epochs for learning rate warmup
+        quiet: If True, disable tqdm progress bars
     """
     print("\n" + "=" * 60)
     print("TRAINING EQTRANSFORMERMAG")
@@ -57,10 +61,7 @@ def train_eqtransformer_mag(
     print(f"Warmup epochs: {warmup_epochs}")
     print("=" * 60)
 
-    # Move model to device
-   # model.to_preferred_device(verbose=True)
-    model.to("cuda:1")
-    # Get the actual device where the model ended up
+    # Get the device where the model is already placed
     device = next(model.parameters()).device
     print(f"Model is on device: {device}")
 
@@ -140,9 +141,13 @@ def train_eqtransformer_mag(
         model.train()
         total_loss = 0
         total_mae = 0
+        total_mse = 0
         num_batches = len(dataloader)
 
-        for batch_id, batch in enumerate(dataloader):
+        # Create progress bar
+        pbar = tqdm(dataloader, desc="Training", leave=False, disable=quiet)
+        
+        for batch in pbar:
             # Get input and target
             x = batch["X"].to(device)
             y_true = batch["magnitude"].to(device)  # Target magnitudes
@@ -167,45 +172,49 @@ def train_eqtransformer_mag(
             loss.backward()
 
             # Gradient clipping (important for transformers)
+            grad_norm = 0.0
             if gradient_clip is not None:
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), gradient_clip
                 )
-            else:
-                grad_norm = 0.0
 
             optimizer.step()
 
             # Track metrics
-            total_loss += loss.item()
+            batch_loss = loss.item()
+            total_loss += batch_loss
             with torch.no_grad():
                 mae = torch.abs(y_pred - y_true).mean().item()
                 total_mae += mae
+                total_mse += batch_loss
 
-            # Print progress
-            if batch_id % 10 == 0:
-                current = batch_id * batch["X"].shape[0]
-                print(
-                    f"Batch {batch_id:4d}/{num_batches} | "
-                    f"Loss: {loss.item():.4f} | "
-                    f"MAE: {mae:.4f} | "
-                    f"Grad: {grad_norm:.2f} | "
-                    f"[{current:>5d}/{len(dataloader.dataset):>5d}]"
-                )
+            # Update progress bar
+            pbar.set_postfix({
+                'loss': f'{batch_loss:.4f}',
+                'mae': f'{mae:.4f}',
+                'grad': f'{grad_norm:.2f}' if gradient_clip else 'N/A'
+            })
 
         avg_loss = total_loss / num_batches
         avg_mae = total_mae / num_batches
-        return avg_loss, avg_mae
+        avg_mse = total_mse / num_batches
+        avg_rmse = avg_mse ** 0.5
+        
+        return avg_loss, avg_mae, avg_mse, avg_rmse
 
     def validation_loop(dataloader):
         """Validation loop."""
         model.eval()
         total_loss = 0
         total_mae = 0
+        total_mse = 0
         num_batches = len(dataloader)
 
+        # Create progress bar
+        pbar = tqdm(dataloader, desc="Validation", leave=False, disable=quiet)
+        
         with torch.no_grad():
-            for batch in dataloader:
+            for batch in pbar:
                 x = batch["X"].to(device)
                 y_true = batch["magnitude"].to(device)
 
@@ -223,18 +232,23 @@ def train_eqtransformer_mag(
                 loss = criterion(y_pred, y_true)
                 mae = torch.abs(y_pred - y_true).mean()
 
-                total_loss += loss.item()
+                batch_loss = loss.item()
+                total_loss += batch_loss
                 total_mae += mae.item()
+                total_mse += batch_loss
+                
+                # Update progress bar
+                pbar.set_postfix({
+                    'loss': f'{batch_loss:.4f}',
+                    'mae': f'{mae.item():.4f}'
+                })
 
         avg_loss = total_loss / num_batches
         avg_mae = total_mae / num_batches
+        avg_mse = total_mse / num_batches
+        avg_rmse = avg_mse ** 0.5
 
-        print(f"\nValidation Results:")
-        print(f"  Avg Loss (MSE): {avg_loss:.6f}")
-        print(f"  Avg MAE: {avg_mae:.6f}")
-        print(f"  RMSE: {avg_loss**0.5:.6f}")
-
-        return avg_loss, avg_mae
+        return avg_loss, avg_mae, avg_mse, avg_rmse
 
     # Create save directory with timestamp
     script_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -250,6 +264,9 @@ def train_eqtransformer_mag(
     val_maes = []
     learning_rates = []
     epochs_without_improvement = 0
+    
+    # Track total training time
+    training_start_time = time.time()
 
     for epoch in range(epochs):
         print(f"\n{'='*60}")
@@ -261,20 +278,23 @@ def train_eqtransformer_mag(
         print(f"{'='*60}")
 
         # Train
-        train_loss, train_mae = train_loop(train_loader, epoch)
+        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader, epoch)
         train_losses.append(train_loss)
         train_maes.append(train_mae)
         learning_rates.append(current_lr)
 
-        print(f"\nTraining Results:")
-        print(f"  Avg Loss (MSE): {train_loss:.6f}")
-        print(f"  Avg MAE: {train_mae:.6f}")
-        print(f"  RMSE: {train_loss**0.5:.6f}")
-
         # Validate
-        val_loss, val_mae = validation_loop(dev_loader)
+        val_loss, val_mae, val_mse, val_rmse = validation_loop(dev_loader)
         val_losses.append(val_loss)
         val_maes.append(val_mae)
+
+        # Print epoch summary
+        print(f"\n{'='*60}")
+        print(f"Epoch {epoch + 1}/{epochs} Summary")
+        print(f"{'='*60}")
+        print(f"Training   -> Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
+        print(f"Validation -> Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
+        print(f"{'='*60}")
 
         # Step warmup LambdaLR ONCE per epoch AFTER optimizer steps
         warmup_scheduler.step()
@@ -376,6 +396,13 @@ def train_eqtransformer_mag(
     )
     print(f"\nFinal model saved: {final_model_path}")
 
+    # Calculate total training time
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    hours = int(total_training_time // 3600)
+    minutes = int((total_training_time % 3600) // 60)
+    seconds = int(total_training_time % 60)
+
     # Save training history
     history = {
         "train_losses": train_losses,
@@ -384,6 +411,7 @@ def train_eqtransformer_mag(
         "val_maes": val_maes,
         "learning_rates": learning_rates,
         "best_val_loss": best_val_loss,
+        "total_training_time": total_training_time,
         "config": {
             "model_name": model_name,
             "learning_rate": learning_rate,
@@ -409,6 +437,7 @@ def train_eqtransformer_mag(
     print(f"Best validation RMSE: {best_val_loss**0.5:.6f}")
     print(f"Final train loss: {train_losses[-1]:.6f}")
     print(f"Final val loss: {val_losses[-1]:.6f}")
+    print(f"Total training time: {hours:02d}h {minutes:02d}m {seconds:02d}s")
     print("=" * 60)
 
     return history

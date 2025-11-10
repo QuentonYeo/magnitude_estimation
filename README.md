@@ -7,7 +7,6 @@
 - [Model Configuration](#model-configuration)
 - [Complete Command Reference](#complete-command-reference)
 - [Unified Architecture](#unified-architecture)
-- [Hyperparameter Tuning](#hyperparameter-tuning)
 
 ## Description
 
@@ -70,7 +69,7 @@ uv run python -m src.my_project.main --help
 
 All models (except the standard PhaseNet) support configurable parameters that can be set via command line arguments. This allows easy experimentation with different model architectures and capacities.
 
-**Universal Training Parameters for Magnitude Models**: All magnitude models (`phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2`) now support configurable `learning_rate`, `batch_size`, and `warmup_epochs` parameters for optimized training with learning rate warmup scheduling.
+**Universal Training Parameters for Magnitude Models**: All magnitude models (`phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2`, `umamba_mag`, `umamba_mag_v2`) now support configurable `learning_rate`, `batch_size`, and `warmup_epochs` parameters for optimized training with learning rate warmup scheduling.
 
 ### Available Models and Parameters
 
@@ -251,34 +250,39 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 
 #### 7. UMambaMag (`umamba_mag`)
 
-**Description**: U-Net architecture with Mamba (state space model) layers for magnitude estimation. Combines residual blocks for local feature extraction with Mamba layers for long-range temporal dependency modeling. Efficient linear-time complexity for processing long seismic waveforms.
+**Description**: U-Net architecture with Mamba (state space model) layers for magnitude estimation. Combines residual blocks for local feature extraction with Mamba layers for long-range temporal dependency modeling. Uses encoder-decoder structure with skip connections. Efficient linear-time complexity for processing long seismic waveforms.
 
 **Configurable Parameters:**
 
 - `--n_stages` (int, default=4): Number of encoder/decoder stages
+- `--features_per_stage` (str, default="8,16,32,64"): Comma-separated feature counts per stage (must match n_stages length)
+- `--strides` (str, default="2,2,2,2"): Comma-separated stride values per stage (must match n_stages length)
 - `--kernel_size` (int, default=7): Kernel size for convolutions
 - `--n_blocks_per_stage` (int, default=2): Number of residual blocks per stage
+- `--n_conv_per_stage_decoder` (int, default=2): Number of conv layers per decoder stage
 - `--deep_supervision` (flag, default=False): Enable multi-scale supervision
 - `--norm` (str, default="std"): Normalization method ("std" or "peak")
 - `--learning_rate` (float, default=0.001): Learning rate for training
 - `--batch_size` (int, default=64): Batch size for training (smaller due to Mamba complexity)
 - `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
 
+**Important**: When changing `--n_stages`, you must also provide matching `--features_per_stage` and `--strides` with the same number of values.
+
 **Examples:**
 
 ```bash
-# Default configuration (compact model with 227K parameters)
+# Default configuration (U-Net architecture with ~560K parameters)
 uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag --dataset GEOFON --epochs 50
 
-# High capacity model with more stages
+# High capacity model with 5 stages (must specify features and strides for 5 stages)
 uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
-       --dataset ETHZ --n_stages 5 --n_blocks_per_stage 3 --kernel_size 9 \
-       --learning_rate 0.001 --batch_size 32 --warmup_epochs 8
+       --dataset ETHZ --n_stages 5 --features_per_stage 8,16,32,64,128 --strides 2,2,2,2,2 \
+       --n_blocks_per_stage 3 --kernel_size 9 --learning_rate 0.001 --batch_size 32 --warmup_epochs 8
 
-# Lightweight model for faster training
+# Lightweight model for faster training (3 stages)
 uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
-       --dataset ETHZ --n_stages 3 --n_blocks_per_stage 1 --kernel_size 5 \
-       --batch_size 128 --warmup_epochs 3
+       --dataset ETHZ --n_stages 3 --features_per_stage 8,16,32 --strides 2,2,2 \
+       --n_blocks_per_stage 1 --kernel_size 5 --batch_size 128 --warmup_epochs 3
 
 # With deep supervision for multi-scale training
 uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
@@ -290,10 +294,170 @@ uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag \
 ```
 
 **Key Features:**
+- **U-Net Architecture**: Encoder-decoder with skip connections for multi-scale features
 - **Mamba State Space Models**: O(N) complexity for long-range dependencies (vs O(N²) for attention)
-- **Residual U-Net Structure**: Multi-scale features with skip connections
-- **Efficient Training**: Smaller batch sizes recommended due to Mamba's memory footprint
-- **Linear Complexity**: Can process very long seismic sequences efficiently
+- **Residual Blocks**: Local feature extraction at each stage
+- **Time-Series Output**: Produces magnitude prediction for each time step (averaged for final output)
+
+#### 8. UMambaMag V2 (`umamba_mag_v2`)
+
+**Description**: Encoder-only architecture with Mamba layers and global pooling for magnitude estimation. Simpler and more efficient than V1 with 60% fewer parameters and ~2x faster training/inference. Direct scalar output without decoder complexity.
+
+**Configurable Parameters:**
+
+- `--n_stages` (int, default=4): Number of encoder stages
+- `--features_per_stage` (str, default="8,16,32,64"): Comma-separated feature counts per stage
+- `--strides` (str, default="2,2,2,2"): Comma-separated stride values per stage
+- `--kernel_size` (int, default=7): Kernel size for convolutions
+- `--n_blocks_per_stage` (int, default=2): Number of residual blocks per stage
+- `--pooling_type` (str, default="avg"): Global pooling type ("avg" or "max")
+- `--hidden_dims` (str, default="128,64"): Comma-separated hidden dimensions for regression head
+- `--dropout` (float, default=0.3): Dropout rate in regression head
+- `--norm` (str, default="std"): Normalization method ("std" or "peak")
+- `--learning_rate` (float, default=0.001): Learning rate for training
+- `--batch_size` (int, default=64): Batch size for training
+- `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
+
+**Examples:**
+
+```bash
+# Default configuration (encoder-only with ~220K parameters)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v2 --dataset STEAD --epochs 150
+
+# High capacity model with deeper regression head
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v2 \
+       --dataset ETHZ --features_per_stage 16,32,64,128 --hidden_dims 256,128,64 \
+       --learning_rate 0.001 --batch_size 32 --warmup_epochs 8
+
+# Lightweight model with max pooling
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v2 \
+       --dataset ETHZ --features_per_stage 8,16,32,64 --pooling_type max \
+       --hidden_dims 64 --dropout 0.2 --batch_size 128
+
+# Evaluation
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v2 \
+       --dataset STEAD --model_path path/to/model_best.pt --plot
+```
+
+**Key Features:**
+- **Encoder-Only**: No decoder = simpler architecture and faster training
+- **Global Pooling**: Aggregates temporal features before regression
+- **Fewer Parameters**: ~220K vs ~560K in V1 (60% reduction)
+- **Direct Output**: Single scalar magnitude prediction (no time-series averaging needed)
+- **Better for Regression**: More appropriate architecture for scalar output tasks
+
+**V1 vs V2 Comparison:**
+
+| Aspect | V1 (umamba_mag) | V2 (umamba_mag_v2) |
+|--------|-----------------|-------------------|
+| Architecture | Encoder-Decoder (U-Net) | Encoder-only + Pooling |
+| Parameters | ~560K | ~220K (60% fewer) |
+| Output | Time-series (averaged) | Direct scalar |
+| Speed | Slower | ~2x faster |
+| Use Case | When multi-scale features help | Standard magnitude regression |
+
+**Recommendation**: Start with V2 for most use cases. Use V1 only if you need multi-scale features or temporal interpretability.
+
+#### 9. UMambaMag V3 (`umamba_mag_v3`)
+
+**Description**: Advanced triple-head architecture with multi-scale feature fusion, flexible pooling strategies, and optional uncertainty-weighted learning. Combines the best of V1 and V2 with enhanced capabilities for improved magnitude estimation. Supports both dual-head (scalar + temporal) and triple-head (scalar + temporal + uncertainty) modes.
+
+**Configurable Parameters:**
+
+- `--n_stages` (int, default=4): Number of encoder stages
+- `--features_per_stage` (str, default="8,16,32,64"): Comma-separated feature counts per stage
+- `--strides` (str, default="2,2,2,2"): Comma-separated stride values per stage
+- `--kernel_size` (int, default=7): Kernel size for convolutions
+- `--n_blocks_per_stage` (int, default=2): Number of residual blocks per stage
+- `--pooling_type` (str, default="avg", choices=["avg", "max", "hybrid"]): Pooling type for scalar head
+  - `avg`: Average pooling (default, robust to outliers)
+  - `max`: Max pooling (captures peak ground motion)
+  - `hybrid`: Learnable blend of avg and max (adaptive)
+- `--hidden_dims` (str, default="192,96"): Comma-separated hidden dimensions for multi-scale regression head
+- `--dropout` (float, default=0.3): Dropout rate in regression head
+- `--norm` (str, default="std"): Normalization method ("std" or "peak")
+- `--scalar_weight` (float, default=0.7): Loss weight for scalar magnitude (primary task)
+- `--temporal_weight` (float, default=0.25): Loss weight for temporal magnitude (auxiliary task)
+- `--use_uncertainty` (flag, default=False): Enable uncertainty head for automatic sample weighting (Kendall & Gal 2017)
+- `--learning_rate` (float, default=0.001): Learning rate for training
+- `--batch_size` (int, default=64): Batch size for training
+- `--warmup_epochs` (int, default=5): Linear warmup epochs for training stability
+
+**Examples:**
+
+```bash
+# Default configuration (dual-head with ~216K parameters)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 --dataset STEAD --epochs 100
+
+# Triple-head with uncertainty weighting (recommended for large datasets)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset STEAD --epochs 100 --use_uncertainty \
+       --scalar_weight 0.7 --temporal_weight 0.25 --batch_size 64
+
+# High capacity model with hybrid pooling and custom loss weights
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --epochs 150 --pooling_type hybrid \
+       --features_per_stage 16,32,64,128 --hidden_dims 256,128,64 \
+       --scalar_weight 0.8 --temporal_weight 0.15 --use_uncertainty \
+       --learning_rate 0.001 --batch_size 32 --warmup_epochs 8
+
+# Max pooling for earthquake magnitude (captures peak amplitudes)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --epochs 100 --pooling_type max \
+       --scalar_weight 0.75 --temporal_weight 0.2 --batch_size 64
+
+# Evaluation with plots (3 examples showing waveforms, temporal predictions, uncertainty)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v3 \
+       --dataset STEAD --model_path path/to/model_best.pt --plot --num_examples 3
+
+# Evaluation with more examples (5 plots)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --model_path path/to/model_best.pt --plot --num_examples 5 \
+       --pooling_type hybrid --use_uncertainty
+```
+
+**Key Features:**
+- **Multi-Scale Fusion**: Scalar head concatenates pooled features from ALL encoder stages (8+16+32+64=120 channels) for richer representations
+- **Flexible Pooling**: Choose avg (robust), max (peak detection), or hybrid (learnable blend) based on task requirements
+- **Dual/Triple-Head Architecture**:
+  - **Scalar Head**: Global magnitude prediction (primary task) with multi-scale fusion
+  - **Temporal Head**: Per-timestep magnitude (auxiliary task) for temporal interpretability
+  - **Uncertainty Head** (optional): Learns per-sample confidence for automatic sample weighting
+- **Uncertainty-Weighted Loss**: Kendall & Gal 2017 formulation - high-uncertainty samples receive lower weight during training
+- **Configurable Loss Weights**: Balance between scalar (global) and temporal (per-timestep) objectives
+- **Enhanced Plotting**: Generates 3-subplot figures showing:
+  1. Original 3-component waveform (Z, N, E channels)
+  2. Temporal magnitude predictions per timestep
+  3. Uncertainty estimates (confidence) per sample (if enabled)
+
+**V1 vs V2 vs V3 Comparison:**
+
+| Aspect | V1 (umamba_mag) | V2 (umamba_mag_v2) | V3 (umamba_mag_v3) |
+|--------|-----------------|--------------------|--------------------|
+| Architecture | Encoder-Decoder (U-Net) | Encoder-only + Pooling | Encoder-only + Multi-scale Fusion |
+| Parameters | ~560K | ~220K | ~216K |
+| Output Heads | Single (temporal → scalar) | Single (scalar) | Dual/Triple (scalar + temporal + uncertainty) |
+| Pooling | Fixed average | Fixed avg/max | Avg/Max/Hybrid (learnable) |
+| Multi-scale | Via decoder skip connections | No | Yes (all stages concatenated) |
+| Uncertainty | No | No | Yes (optional) |
+| Training Speed | Slower | Fast | Fast |
+| Use Case | Multi-scale temporal | Standard regression | Advanced regression with confidence |
+
+**Loss Weight Guidelines:**
+- `scalar_weight` (primary task): Recommended 0.6-0.8
+- `temporal_weight` (auxiliary task): Recommended 0.2-0.4
+- Combined should be ≤ 1.0 (remaining weight goes to uncertainty regularization if enabled)
+- Higher `scalar_weight`: Focus on global accuracy
+- Higher `temporal_weight`: Emphasize temporal consistency
+
+**When to Use Uncertainty Head:**
+- ✅ Large datasets (>100K samples): Automatic quality-based weighting
+- ✅ Noisy labels: Down-weight unreliable samples
+- ✅ Heterogeneous data: Different confidence per source/region
+- ❌ Small datasets (<10K samples): May overfit to noise patterns
+- ❌ Clean labels: Standard loss sufficient
+
+**Recommendation**: V3 is the most advanced model with best performance. Use `--use_uncertainty` for large datasets (STEAD) and `--pooling_type hybrid` for adaptive feature aggregation. Start with default loss weights (0.7/0.25) and adjust based on validation performance.
 
 ### Important Notes
 
@@ -356,18 +520,19 @@ uv run python -m src.my_project.main [OPTIONS]
 | Argument       | Description        | Choices                                                                                                      | Default    | Notes                             |
 | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ | ---------- | --------------------------------- |
 | `--dataset`    | Dataset to use     | `ETHZ`, `STEAD`, `GEOFON`, `MLAAPDE`                                                                         | `ETHZ`     |                                   |
-| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2`, `umamba_mag` | `phasenet` |                                   |
+| `--model_type` | Model type         | `phasenet`, `phasenet_lstm`, `phasenet_conv_lstm`, `phasenet_mag`, `eqtransformer_mag`, `vit_mag`, `amag_v2`, `umamba_mag`, `umamba_mag_v2`, `umamba_mag_v3` | `phasenet` |                                   |
 | `--model_path` | Path to model file | Any valid path                                                                                               | `""`       | Required for evaluation modes     |
 | `--epochs`     | Training epochs    | Positive integer                                                                                             | `5`        | For training modes only           |
 | `--plot`       | Show/save plots    | Flag (no value)                                                                                              | `False`    | For `eval_mag` and `plot_history` |
+| `--num_examples` | Number of examples to plot | Positive integer                                                                                      | `5`        | For `eval_mag` with `--plot` flag |
 
 ### Training Parameters (Magnitude Models Only)
 
-| Argument          | Description                                   | Type  | Default | Notes                                                                           |
-| ----------------- | --------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------------- |
-| `--learning_rate` | Learning rate for training                    | float | varies  | Model-specific defaults: EQTransformerMag/ViTMag=0.0001, others=0.001           |
-| `--batch_size`    | Batch size for training                       | int   | varies  | Model-specific defaults: EQTransformerMag=16, PhaseNetMag=32, ViTMag/AMAG_v2=64 |
-| `--warmup_epochs` | Number of warmup epochs with linear LR warmup | int   | 5       | Learning rate starts at 10% and linearly increases to 100%                      |
+| Argument          | Description                                   | Type  | Default | Notes                                                                                      |
+| ----------------- | --------------------------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------ |
+| `--learning_rate` | Learning rate for training                    | float | varies  | Model-specific defaults: EQTransformerMag/ViTMag=0.0001, others=0.001                      |
+| `--batch_size`    | Batch size for training                       | int   | varies  | Model-specific defaults: EQTransformerMag=16, PhaseNetMag=32, ViTMag/AMAG_v2/UMambaMag=64 |
+| `--warmup_epochs` | Number of warmup epochs with linear LR warmup | int   | 5       | Learning rate starts at 10% and linearly increases to 100%                                 |
 
 **Examples:**
 
@@ -387,6 +552,10 @@ uv run python -m src.my_project.main --mode train_mag --model_type vit_mag \
 # Train AMAG_v2 with stability warmup
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
        --learning_rate 0.001 --batch_size 64 --warmup_epochs 3
+
+# Train UMambaMag with custom parameters
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
+       --learning_rate 0.001 --batch_size 64 --warmup_epochs 5
 ```
 
 ### Model Configuration Arguments
@@ -458,8 +627,38 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
 | `--n_stages`               | Number of encoder/decoder stages  | int  | 4       | Controls depth of U-Net architecture    |
 | `--kernel_size`            | Kernel size for convolutions      | int  | 7       | Affects receptive field                 |
 | `--n_blocks_per_stage`     | Residual blocks per stage         | int  | 2       | More blocks = more capacity             |
-| `--deep_supervision`       | Enable multi-scale supervision    | flag | False   | Include flag to enable                  |
+| `--n_conv_per_stage_decoder` | Conv layers per decoder stage   | int  | 2       | V1 only - decoder complexity            |
+| `--deep_supervision`       | Enable multi-scale supervision    | flag | False   | V1 only - include flag to enable        |
 | `--norm`                   | Normalization method              | str  | "std"   | Choices: "std", "peak"                  |
+
+#### UMambaMag V2 Parameters
+
+| Argument           | Description                              | Type  | Default | Notes                          |
+| ------------------ | ---------------------------------------- | ----- | ------- | ------------------------------ |
+| `--n_stages`       | Number of encoder stages                 | int   | 4       | Controls encoder depth         |
+| `--kernel_size`    | Kernel size for convolutions             | int   | 7       | Affects receptive field        |
+| `--n_blocks_per_stage` | Residual blocks per stage            | int   | 2       | More blocks = more capacity    |
+| `--pooling_type`   | Global pooling type                      | str   | "avg"   | Choices: "avg", "max"          |
+| `--hidden_dims`    | Regression head hidden dimensions        | str   | "128,64"| Comma-separated list           |
+| `--dropout`        | Dropout rate in regression head          | float | 0.3     | Regularization strength        |
+| `--norm`           | Normalization method                     | str   | "std"   | Choices: "std", "peak"         |
+
+#### UMambaMag V3 Parameters
+
+| Argument           | Description                              | Type  | Default | Notes                                    |
+| ------------------ | ---------------------------------------- | ----- | ------- | ---------------------------------------- |
+| `--n_stages`       | Number of encoder stages                 | int   | 4       | Controls encoder depth                   |
+| `--features_per_stage` | Feature counts per stage             | str   | "8,16,32,64" | Comma-separated, must match n_stages |
+| `--strides`        | Stride values per stage                  | str   | "2,2,2,2" | Comma-separated, must match n_stages  |
+| `--kernel_size`    | Kernel size for convolutions             | int   | 7       | Affects receptive field                  |
+| `--n_blocks_per_stage` | Residual blocks per stage            | int   | 2       | More blocks = more capacity              |
+| `--pooling_type`   | Pooling type for scalar head             | str   | "avg"   | Choices: "avg", "max", "hybrid"          |
+| `--hidden_dims`    | Multi-scale regression head hidden dims  | str   | "192,96"| Comma-separated list (larger for multi-scale) |
+| `--dropout`        | Dropout rate in regression head          | float | 0.3     | Regularization strength                  |
+| `--scalar_weight`  | Loss weight for scalar magnitude         | float | 0.7     | Primary task weight (0.6-0.8 recommended) |
+| `--temporal_weight`| Loss weight for temporal magnitude       | float | 0.25    | Auxiliary task weight (0.2-0.4 recommended) |
+| `--use_uncertainty`| Enable uncertainty head                  | flag  | False   | Include flag for triple-head mode        |
+| `--norm`           | Normalization method                     | str   | "std"   | Choices: "std", "peak"                   |
 
 ### Mode-Specific Requirements
 
@@ -499,7 +698,9 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
   - `eqtransformer_mag`: Transformer-based magnitude estimation with 30-second windows
   - `vit_mag`: Vision Transformer adapted for magnitude estimation with patch-based processing
   - `amag_v2`: Advanced Magnitude estimation model (MagnitudeNet)
-  - `umamba_mag`: U-Net with Mamba state space models for efficient long-range modeling
+  - `umamba_mag`: U-Net with Mamba state space models (encoder-decoder architecture, ~560K params)
+  - `umamba_mag_v2`: Encoder-only Mamba model with global pooling (~220K params, 60% fewer, 2x faster)
+  - `umamba_mag_v3`: **Advanced triple-head Mamba with multi-scale fusion and uncertainty weighting (~216K params, best performance)**
 
 ### Available Datasets
 
@@ -562,6 +763,51 @@ uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 --dat
 uv run python -m src.my_project.main --mode train_mag --model_type amag_v2 \
        --dataset ETHZ --epochs 50 --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 \
        --dropout 0.3 --learning_rate 0.001 --batch_size 64 --warmup_epochs 5
+
+# Train UMambaMag with default parameters (U-Net with ~560K parameters)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag --dataset GEOFON --epochs 50
+
+# Train UMambaMag V2 with default parameters (encoder-only with ~220K parameters, 2x faster)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v2 --dataset STEAD --epochs 150
+
+# Train UMambaMag with high capacity configuration (5 stages requires matching features and strides)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
+       --dataset STEAD --epochs 200 --n_stages 5 --n_blocks_per_stage 3 --kernel_size 9 \
+       --features_per_stage 8,16,32,64,128 --strides 2,2,2,2,2 \
+       --learning_rate 0.001 --batch_size 32 --warmup_epochs 8 --early_stopping_patience 10
+
+# Train UMambaMag V2 with different pooling strategies
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v2 \
+       --dataset ETHZ --epochs 150 --pooling_type max --hidden_dims 256,128,64 \
+       --dropout 0.4 --batch_size 64
+
+# Train UMambaMag with deep supervision for multi-scale training
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag \
+       --dataset ETHZ --epochs 50 --deep_supervision --learning_rate 0.0005 --batch_size 64 --warmup_epochs 5
+
+# Train UMambaMag V3 with default dual-head configuration (~216K parameters)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset STEAD --epochs 100 --batch_size 64
+
+# Train UMambaMag V3 with triple-head and uncertainty weighting (recommended for large datasets)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset STEAD --epochs 100 --use_uncertainty \
+       --scalar_weight 0.7 --temporal_weight 0.25 --batch_size 64
+
+# Train UMambaMag V3 with hybrid pooling and custom loss weights
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --epochs 150 --pooling_type hybrid \
+       --scalar_weight 0.8 --temporal_weight 0.15 --use_uncertainty \
+       --learning_rate 0.001 --batch_size 32 --warmup_epochs 8
+
+# Train UMambaMag V3 with max pooling (captures peak amplitudes)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --epochs 100 --pooling_type max \
+       --scalar_weight 0.75 --temporal_weight 0.2 --batch_size 64
+
+# Quick test on small dataset (ETHZ, 2 epochs)
+uv run python -m src.my_project.main --mode train_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --epochs 2 --batch_size 32 --cuda 3
 ```
 
 #### Phase Model Evaluation
@@ -604,7 +850,47 @@ uv run python -m src.my_project.main --mode eval_mag --model_type vit_mag --data
 uv run python -m src.my_project.main --mode eval_mag --model_type amag_v2 --dataset ETHZ \
        --model_path trained_weights/magnitudenet_v1/model_final_*.pt --plot \
        --filter_factor 2 --lstm_hidden 256 --lstm_layers 3 --dropout 0.3
+
+# Evaluate UMambaMag model with plots (matching training parameters)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag --dataset GEOFON \
+       --model_path path/to/model_best.pt --plot \
+       --n_stages 4 --kernel_size 7 --n_blocks_per_stage 2 --deep_supervision --batch_size 32
+
+# Evaluate UMambaMag V2 model with plots
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v2 --dataset STEAD \
+       --model_path path/to/model_best.pt --plot \
+       --pooling_type avg --hidden_dims 128,64 --dropout 0.3
+
+# Evaluate UMambaMag V3 model with default dual-head plots (3 examples)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v3 \
+       --dataset STEAD --model_path path/to/model_best.pt --plot --num_examples 3
+
+# Evaluate UMambaMag V3 with triple-head (shows uncertainty plots)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --model_path path/to/model_best.pt --plot --num_examples 5 \
+       --use_uncertainty --pooling_type hybrid
+
+# Evaluate UMambaMag V3 with matching training parameters (max pooling, custom loss weights)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --model_path path/to/model_best.pt --plot --num_examples 3 \
+       --pooling_type max --scalar_weight 0.75 --temporal_weight 0.2
+
+# Quick evaluation without plots (metrics only)
+uv run python -m src.my_project.main --mode eval_mag --model_type umamba_mag_v3 \
+       --dataset ETHZ --model_path path/to/model_best.pt --cuda 3
+
+# Tip: UMamba uses Mamba state-space layers which can increase memory usage. If you run into GPU OOM
+# errors during evaluation, reduce `--batch_size` (e.g. 8 or 16) or remove `--plot` to lower memory demand.
 ```
+
+**UMamba V3 Plot Examples:**
+
+Each plotted example generates a multi-subplot figure showing:
+1. **Waveform Plot** (top): Original 3-component seismogram (Z, N, E channels) with P/S picks marked
+2. **Temporal Magnitude** (middle): Per-timestep magnitude predictions showing how the estimate evolves over time
+3. **Uncertainty Plot** (bottom, if `--use_uncertainty` enabled): Confidence/uncertainty estimates per timestep
+
+Files are saved as: `temporal_example_1_TIMESTAMP.png`, `temporal_example_2_TIMESTAMP.png`, etc.
 
 #### Tutorial Commands
 
@@ -630,6 +916,9 @@ uv run python -m src.my_project.main --mode plot_history --model_path path/to/tr
 
 # Plot training history (show and save)
 uv run python -m src.my_project.main --mode plot_history --model_path path/to/training_history_*.pt --plot
+
+# Plot (and optionally filter) STEAD SNR
+uv run python -m src.my_project.main --mode plot_snr --dataset STEAD --snr_threshold 10.0
 ```
 
 ### Help Command

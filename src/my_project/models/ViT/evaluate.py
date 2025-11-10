@@ -42,10 +42,11 @@ def evaluate_vit_magnitude(
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         # Full checkpoint format
         state_dict = checkpoint["model_state_dict"]
-        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')}")
-        print(f"Validation loss: {checkpoint.get('val_loss', 'N/A')}")
+        print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'N/A')}")
+        if "val_loss" in checkpoint:
+            print(f"Checkpoint validation loss: {checkpoint['val_loss']:.6f}")
         if "best_val_loss" in checkpoint:
-            print(f"Best validation loss: {checkpoint['best_val_loss']}")
+            print(f"Best validation loss: {checkpoint['best_val_loss']:.6f}")
     else:
         # Legacy weights format
         state_dict = checkpoint
@@ -53,7 +54,11 @@ def evaluate_vit_magnitude(
 
     model.load_state_dict(state_dict)
     model.eval()
-    print(f"Model loaded successfully")
+    print(f"Model loaded and set to evaluation mode")
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {total_params:,}")
 
     # Move model to device
     model.to_preferred_device(verbose=True)
@@ -64,6 +69,7 @@ def evaluate_vit_magnitude(
         data, model, "test", batch_size=batch_size
     )
     print(f"Test samples: {len(test_generator)}")
+    print(f"Test batches: {len(test_loader)}")
 
     # Collect all predictions and targets
     all_predictions = []
@@ -71,17 +77,42 @@ def evaluate_vit_magnitude(
     all_waveforms = []
     attention_weights = []  # For visualization if needed
     sample_indices = []
+    inference_times = []
 
     print("Running evaluation...")
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(test_loader, desc="Evaluating")):
+            # Time the forward pass
+            start_time = (
+                torch.cuda.Event(enable_timing=True) if device.type == "cuda" else None
+            )
+            end_time = (
+                torch.cuda.Event(enable_timing=True) if device.type == "cuda" else None
+            )
+
+            if start_time is not None:
+                start_time.record()
+
             x = batch["X"].to(device)
             y_true = batch["magnitude"].to(device)
 
+            # Handle target shape - should be (batch,) for scalar regression
+            if y_true.dim() == 2:
+                y_true = y_true.mean(dim=1)
+            y_true = y_true.squeeze()
+
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
-            y_pred = model(x_preproc)  # Shape: (batch, 1, 3001)
-            y_pred = y_pred.squeeze(1)  # Remove channel dimension: (batch, 3001)
+            y_pred = model(x_preproc)  # Shape: (batch,)
+            y_pred = y_pred.squeeze()  # Ensure 1D
+
+            if end_time is not None:
+                end_time.record()
+                torch.cuda.synchronize()
+                inference_time = (
+                    start_time.elapsed_time(end_time) / 1000.0
+                )  # Convert to seconds
+                inference_times.append(inference_time)
 
             # Move to CPU and convert to numpy
             y_pred_np = y_pred.cpu().numpy()
@@ -120,22 +151,31 @@ def evaluate_vit_magnitude(
     magnitude_range = np.max(all_targets) - np.min(all_targets)
     normalized_rmse = rmse / magnitude_range if magnitude_range > 0 else float("inf")
 
+    # Calculate timing metrics
+    avg_inference_time = np.mean(inference_times) if inference_times else 0
+    total_inference_time = np.sum(inference_times) if inference_times else 0
+
     print("\n" + "=" * 60)
-    print("EVALUATION RESULTS")
+    print("VIT MAGNITUDE ESTIMATOR EVALUATION RESULTS")
     print("=" * 60)
-    print(f"Test samples: {len(all_predictions)}")
-    print(f"Mean Squared Error (MSE): {mse:.6f}")
-    print(f"Root Mean Squared Error (RMSE): {rmse:.6f}")
-    print(f"Mean Absolute Error (MAE): {mae:.6f}")
-    print(f"R² Score: {r2:.6f}")
-    print(f"Standard deviation of residuals: {std_residuals:.6f}")
-    print(f"Normalized RMSE: {normalized_rmse:.6f}")
+    print(f"Number of test samples: {len(all_predictions)}")
+    print(f"Model parameters: {total_params:,}")
+    print(f"Mean Squared Error (MSE): {mse:.4f}")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"R² Score: {r2:.4f}")
+    if inference_times:
+        print(f"Average inference time: {avg_inference_time:.4f}s per batch")
+        print(f"Total inference time: {total_inference_time:.2f}s")
+    print(f"Standard deviation of residuals: {std_residuals:.4f}")
+    print(f"Normalized RMSE: {normalized_rmse:.4f}")
     print(
         f"Target magnitude range: [{np.min(all_targets):.2f}, {np.max(all_targets):.2f}]"
     )
     print(
         f"Predicted magnitude range: [{np.min(all_predictions):.2f}, {np.max(all_predictions):.2f}]"
     )
+    print("=" * 60)
 
     # Determine output directory
     if output_dir is None:
@@ -256,13 +296,14 @@ def evaluate_vit_magnitude(
 
     # Save detailed results
     results_dict = {
+        "n_samples": len(all_predictions),
+        "model_params": total_params,
         "mse": mse,
         "rmse": rmse,
         "mae": mae,
         "r2": r2,
         "std_residuals": std_residuals,
         "normalized_rmse": normalized_rmse,
-        "num_samples": len(all_predictions),
         "target_range": [float(np.min(all_targets)), float(np.max(all_targets))],
         "prediction_range": [
             float(np.min(all_predictions)),
@@ -271,6 +312,8 @@ def evaluate_vit_magnitude(
         "predictions": all_predictions.tolist(),
         "targets": all_targets.tolist(),
         "residuals": residuals.tolist(),
+        "avg_inference_time": avg_inference_time,
+        "total_inference_time": total_inference_time,
     }
 
     results_file = os.path.join(output_dir, "evaluation_results.pt")

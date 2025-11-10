@@ -9,11 +9,11 @@ from tqdm import tqdm
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from datetime import datetime
 
-from my_project.models.UMamba_mag.model import UMambaMag
+from my_project.models.UMamba_mag_v2.model import UMambaMag
 from my_project.loaders import data_loader as dl
 
 
-def evaluate_umamba_mag(
+def evaluate_umamba_mag_v2(
     model: WaveformModel,
     model_path: str,
     data: sbd.BenchmarkDataset,
@@ -24,18 +24,20 @@ def evaluate_umamba_mag(
     device: Optional[str] = None,
 ):
     """
-    Evaluate UMambaMag model on test set.
+    Evaluate UMambaMag V2 model on test set.
 
     Args:
-        model: UMambaMag model instance
+        model: UMambaMag V2 model instance
         model_path: Path to trained model weights
         data: Dataset to evaluate on
         batch_size: Batch size for evaluation
         plot_examples: Whether to plot example predictions
         num_examples: Number of examples to plot
+        output_dir: Directory to save outputs (defaults to model directory)
+        device: Device to use for inference
     """
     print("\n" + "=" * 60)
-    print("EVALUATING UMAMBAMAG")
+    print("EVALUATING UMAMBAMAG V2 (ENCODER-ONLY WITH POOLING)")
     print("=" * 60)
 
     # Load model weights
@@ -61,9 +63,6 @@ def evaluate_umamba_mag(
 
     model.load_state_dict(state_dict)
     print(f"Loaded model from: {model_path}")
-    print(f"Model loaded and set to evaluation mode")
-
-    print(f"Model loaded and set to evaluation mode")
 
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
@@ -115,9 +114,9 @@ def evaluate_umamba_mag(
             x = batch["X"].to(device_used)
             y_true = batch["magnitude"].to(device_used)
 
-            # Forward pass - now outputs scalar (batch,) directly
+            # Forward pass - V2 outputs scalar predictions (batch,)
             x_preproc = model.annotate_batch_pre(x, {})
-            y_pred = model(x_preproc)
+            y_pred = model(x_preproc)  # (batch,)
 
             if end_event is not None:
                 end_event.record()
@@ -140,7 +139,7 @@ def evaluate_umamba_mag(
     all_predictions = np.concatenate(all_predictions, axis=0)
     all_targets = np.concatenate(all_targets, axis=0)
 
-    # Use predictions directly (already scalar per sample)
+    # V2 directly outputs scalar predictions (no need to average over time)
     pred_final = all_predictions
     target_final = all_targets
 
@@ -155,7 +154,7 @@ def evaluate_umamba_mag(
 
     # Print results
     print("\n" + "=" * 60)
-    print("UMAMBAMAG EVALUATION RESULTS")
+    print("UMAMBAMAG V2 EVALUATION RESULTS")
     print("=" * 60)
     print(f"Number of test samples: {len(pred_final)}")
     print(f"Model parameters: {total_params:,}")
@@ -168,11 +167,11 @@ def evaluate_umamba_mag(
         print(f"Total inference time: {total_inference_time:.2f}s")
     print("=" * 60)
 
-    # Plot examples and summary plots similar to EQTransformer
+    # Plot examples and summary plots
     if output_dir is None:
         output_dir = os.path.dirname(model_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_path = os.path.join(output_dir, f"umamba_evaluation_{timestamp}.png")
+    plot_path = os.path.join(output_dir, f"umamba_v2_evaluation_{timestamp}.png")
 
     # Create summary figure
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
@@ -182,7 +181,8 @@ def evaluate_umamba_mag(
     axes[0, 0].plot([target_final.min(), target_final.max()], [target_final.min(), target_final.max()], "r--")
     axes[0, 0].set_xlabel("True Magnitude")
     axes[0, 0].set_ylabel("Predicted Magnitude")
-    axes[0, 0].set_title(f"UMamba: Predicted vs True (R² = {r2:.3f})")
+    axes[0, 0].set_title(f"UMamba V2: Predicted vs True (R² = {r2:.3f})")
+    axes[0, 0].grid(True, alpha=0.3)
 
     # Residual plot
     residuals = pred_final - target_final
@@ -190,32 +190,51 @@ def evaluate_umamba_mag(
     axes[0, 1].axhline(y=0, color="r", linestyle="--")
     axes[0, 1].set_xlabel("True Magnitude")
     axes[0, 1].set_ylabel("Residual (Predicted - True)")
+    axes[0, 1].set_title(f"Residual Plot (RMSE = {rmse:.3f})")
+    axes[0, 1].grid(True, alpha=0.3)
 
     # Histogram of residuals
-    axes[1, 0].hist(residuals, bins=50, alpha=0.7, density=True)
+    axes[1, 0].hist(residuals, bins=50, alpha=0.7, density=True, edgecolor='black')
     axes[1, 0].axvline(x=0, color="r", linestyle="--")
     axes[1, 0].set_xlabel("Residual (Predicted - True)")
+    axes[1, 0].set_ylabel("Density")
     axes[1, 0].set_title(f"Residual Distribution (MAE = {mae:.3f})")
+    axes[1, 0].grid(True, alpha=0.3)
 
     # Magnitude distribution comparison
-    axes[1, 1].hist(target_final, bins=30, alpha=0.7, label="True", density=True)
-    axes[1, 1].hist(pred_final, bins=30, alpha=0.7, label="Predicted", density=True)
+    axes[1, 1].hist(target_final, bins=30, alpha=0.7, label="True", density=True, edgecolor='black')
+    axes[1, 1].hist(pred_final, bins=30, alpha=0.7, label="Predicted", density=True, edgecolor='black')
     axes[1, 1].set_xlabel("Magnitude")
+    axes[1, 1].set_ylabel("Density")
+    axes[1, 1].set_title("Magnitude Distribution")
     axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3)
 
-    # Time series examples (if available)
-    n_examples_plot = min(num_examples, len(pred_final))
-    if n_examples_plot > 0:
-        axes[2, 0].set_title("Example Predictions (final values)")
-        # Plot a few predicted vs true as points
-        for i in range(n_examples_plot):
-            axes[2, 0].plot([i], [pred_final[i]], "o", label=f"Pred {i+1}" if i < 3 else None)
-            axes[2, 0].plot([i], [target_final[i]], "x", label=f"True {i+1}" if i < 3 else None)
-        axes[2, 0].legend()
+    # Error vs magnitude
+    abs_errors = np.abs(residuals)
+    axes[2, 0].scatter(target_final, abs_errors, alpha=0.6, s=10)
+    axes[2, 0].set_xlabel("True Magnitude")
+    axes[2, 0].set_ylabel("Absolute Error")
+    axes[2, 0].set_title("Absolute Error vs Magnitude")
+    axes[2, 0].grid(True, alpha=0.3)
 
-    # Boxplot of absolute errors
-    axes[2, 1].boxplot([np.abs(residuals)])
-    axes[2, 1].set_title("Absolute Error Distribution")
+    # Boxplot of absolute errors by magnitude bin
+    mag_bins = np.linspace(target_final.min(), target_final.max(), 6)
+    binned_errors = []
+    bin_labels = []
+    for i in range(len(mag_bins) - 1):
+        mask = (target_final >= mag_bins[i]) & (target_final < mag_bins[i + 1])
+        if mask.sum() > 0:
+            binned_errors.append(abs_errors[mask])
+            bin_labels.append(f"{mag_bins[i]:.1f}-{mag_bins[i+1]:.1f}")
+    
+    if binned_errors:
+        axes[2, 1].boxplot(binned_errors, labels=bin_labels)
+        axes[2, 1].set_xlabel("Magnitude Range")
+        axes[2, 1].set_ylabel("Absolute Error")
+        axes[2, 1].set_title("Error Distribution by Magnitude")
+        axes[2, 1].tick_params(axis='x', rotation=45)
+        axes[2, 1].grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(plot_path, dpi=300, bbox_inches="tight")
@@ -225,6 +244,17 @@ def evaluate_umamba_mag(
     else:
         plt.close()
 
+    # Plot example waveforms if requested
+    if plot_examples and num_examples > 0:
+        plot_prediction_examples(
+            model=model,
+            test_loader=test_loader,
+            device=device_used,
+            num_examples=num_examples,
+            output_dir=output_dir,
+            timestamp=timestamp,
+        )
+
     results = {
         "n_samples": len(pred_final),
         "model_params": total_params,
@@ -232,8 +262,8 @@ def evaluate_umamba_mag(
         "rmse": rmse,
         "mae": mae,
         "r2": r2,
-        "predictions_final": pred_final,
-        "targets_final": target_final,
+        "predictions": pred_final,
+        "targets": target_final,
         "residuals": residuals,
         "avg_inference_time": avg_inference_time,
         "total_inference_time": total_inference_time,
@@ -248,15 +278,19 @@ def plot_prediction_examples(
     test_loader,
     device,
     num_examples: int = 5,
+    output_dir: str = None,
+    timestamp: str = None,
 ):
     """
     Plot example waveforms with their magnitude predictions.
 
     Args:
-        model: Trained UMambaMag model
+        model: Trained UMambaMag V2 model
         test_loader: DataLoader for test data
         device: Device to run inference on
         num_examples: Number of examples to plot
+        output_dir: Directory to save plot
+        timestamp: Timestamp for filename
     """
     model.eval()
 
@@ -274,7 +308,7 @@ def plot_prediction_examples(
             x = batch["X"].to(device)
             y_true = batch["magnitude"].to(device)
 
-            # Forward pass
+            # Forward pass - V2 outputs scalar predictions
             x_preproc = model.annotate_batch_pre(x, {})
             y_pred = model(x_preproc)
 
@@ -285,7 +319,7 @@ def plot_prediction_examples(
 
                 # Get waveform and predictions
                 waveform = x[i].cpu().numpy()
-                pred_mag = y_pred[i].mean().item()
+                pred_mag = y_pred[i].item()
                 true_mag = y_true[i].item() if y_true[i].dim() == 0 else y_true[i, 0].item()
 
                 # Plot 3-component waveform
@@ -312,13 +346,19 @@ def plot_prediction_examples(
                     break
 
     plt.tight_layout()
+    
+    if output_dir and timestamp:
+        examples_path = os.path.join(output_dir, f"umamba_v2_examples_{timestamp}.png")
+        plt.savefig(examples_path, dpi=300, bbox_inches="tight")
+        print(f"Example plots saved to: {examples_path}")
+    
     plt.show()
 
 
 # Example usage
 if __name__ == "__main__":
 
-    # Initialize model
+    # Initialize model (V2 - encoder-only with pooling)
     model = UMambaMag(
         in_channels=3,
         sampling_rate=100,
@@ -328,18 +368,19 @@ if __name__ == "__main__":
         kernel_size=7,
         strides=[2, 2, 2, 2],
         n_blocks_per_stage=2,
-        n_conv_per_stage_decoder=2,
-        deep_supervision=False,
+        pooling_type="avg",
+        hidden_dims=[128, 64],
+        dropout=0.3,
     )
 
     # Load dataset
-    data = sbd.ETHZ(sampling_rate=100)
+    data = sbd.STEAD(sampling_rate=100)
 
     # Path to trained model
-    model_path = "src/trained_weights/umambamag_v1_20250127_120000/model_best.pt"
+    model_path = "src/trained_weights/UMambaMag_STEAD_20250128_000000/model_best.pt"
 
     # Evaluate
-    results = evaluate_umamba_mag(
+    results = evaluate_umamba_mag_v2(
         model=model,
         model_path=model_path,
         data=data,

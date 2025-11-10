@@ -21,7 +21,7 @@ def train_phasenetLSTM(
     epochs=5,
     batch_size: int = 256,
     num_workers: int = 4,
-    early_stopping_patience=10,
+    early_stopping_patience=5,
 ):
     train_generator, train_loader, _ = dl.load_dataset(
         data, model, "train", batch_size=batch_size, num_workers=num_workers
@@ -263,15 +263,9 @@ def train_phasenet_lstm_model(
             lstm_bidirectional=lstm_bidirectional,
         )
 
-    # Move to preferred device (GPU if available)
-    if hasattr(model, "to_preferred_device"):
-        model.to_preferred_device(verbose=True)
-    else:
-        import torch
-
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = model.to(device)
-        print(f"Model moved to device: {device}")
+    # Get the device where the model is already placed
+    device = next(model.parameters()).device
+    print(f"Model is on device: {device}")
 
     # Generate model name for saving (if not provided)
     if model_name is None:
