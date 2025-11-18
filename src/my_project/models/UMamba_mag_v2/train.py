@@ -32,6 +32,16 @@ def train_umamba_mag_v2(
 ):
     """
     Train UMambaMag V2 model for magnitude regression.
+    
+    Training methodology aligned with UMamba v3:
+    - Uses .max() for target magnitude extraction (correct after P-arrival)
+    - Scalar predictions only (single magnitude per waveform)
+
+    Important:
+        The training target uses y_temporal.max(dim=1)[0] instead of .mean()
+        because after the P-pick, the magnitude is constant at the source_magnitude
+        value. Using .mean() incorrectly averages with pre-P zeros, artificially
+        lowering the target and causing poor training convergence.
 
     Args:
         model_name: Name for saving model checkpoints
@@ -109,21 +119,9 @@ def train_umamba_mag_v2(
     # Loss function - MSE for regression
     criterion = nn.MSELoss()
 
-    # Learning rate scheduler with warmup and decay
-    base_lr = learning_rate
-
-    def warmup_lambda(epoch):
-        # Warmup from 10% to 100% linearly over warmup_epochs
-        if epoch < warmup_epochs:
-            return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
-        return 1.0
-
-    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=warmup_lambda
-    )
-
-    # ReduceLROnPlateau for post-warmup adjustment
-    reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    # Learning rate scheduler - ReduceLROnPlateau only (no separate warmup scheduler)
+    # Warmup will be handled manually in the training loop
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
         factor=scheduler_factor,
@@ -145,15 +143,15 @@ def train_umamba_mag_v2(
         for batch in pbar:
             # Get input and target
             x = batch["X"].to(device)
-            y_true = batch["magnitude"].to(device)
+            y_temporal = batch["magnitude"].to(device)
 
-            # Handle target shape - should be (batch,) for scalar regression
-            if y_true.dim() == 2:
-                # If shape is (batch, samples), take mean or first value
-                y_true = y_true.mean(dim=1)  # Average across time for single magnitude
-            
-            # Ensure y_true is 1D: (batch,)
-            y_true = y_true.squeeze()
+            # CRITICAL: Use .max() instead of .mean() to get true magnitude
+            # After P-pick, magnitude is constant at source_magnitude value
+            # Using .mean() incorrectly averages with pre-P zeros, lowering the target
+            if y_temporal.dim() == 2:
+                y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
+            else:
+                y_true = y_temporal.squeeze()
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
@@ -214,15 +212,15 @@ def train_umamba_mag_v2(
         with torch.no_grad():
             for batch in pbar:
                 x = batch["X"].to(device)
-                y_true = batch["magnitude"].to(device)
+                y_temporal = batch["magnitude"].to(device)
 
-                # Handle target shape - should be (batch,) for scalar regression
-                if y_true.dim() == 2:
-                    # If shape is (batch, samples), take mean or first value
-                    y_true = y_true.mean(dim=1)  # Average across time for single magnitude
-                
-                # Ensure y_true is 1D: (batch,)
-                y_true = y_true.squeeze()
+                # CRITICAL: Use .max() instead of .mean() to get true magnitude
+                # After P-pick, magnitude is constant at source_magnitude value
+                # Using .mean() incorrectly averages with pre-P zeros, lowering the target
+                if y_temporal.dim() == 2:
+                    y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
+                else:
+                    y_true = y_temporal.squeeze()
 
                 # Forward pass
                 x_preproc = model.annotate_batch_pre(x, {})
@@ -274,6 +272,12 @@ def train_umamba_mag_v2(
         print(f"\n{'='*60}")
         print(f"Epoch {epoch + 1}/{epochs}")
 
+        # Manual warmup learning rate (matches V3)
+        if epoch < warmup_epochs:
+            warmup_factor = (epoch + 1) / warmup_epochs
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = learning_rate * warmup_factor
+
         # Report current learning rate
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"Learning Rate: {current_lr:.2e}")
@@ -297,12 +301,9 @@ def train_umamba_mag_v2(
         print(f"  Val   - Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
         print(f"{'='*60}")
 
-        # Step warmup scheduler
-        warmup_scheduler.step()
-
-        # Step reduce scheduler after warmup
+        # Learning rate scheduling (after warmup) - matches V3 approach
         if epoch >= warmup_epochs:
-            reduce_scheduler.step(val_loss)
+            scheduler.step(val_loss)
 
         # Check for improvement and early stopping
         if val_loss < best_val_loss:

@@ -9,18 +9,18 @@ import seisbench.data as sbd
 from seisbench.models.base import WaveformModel
 from tqdm import tqdm
 
-from my_project.models.UMamba_mag.model import UMambaMag
+from my_project.models.AMAG_v3.model import MagnitudeNet
 from my_project.loaders import data_loader as dl
 
 
-def train_umamba_mag(
+def train_magnitude_net(
     model_name: str,
     model: WaveformModel,
     data: sbd.BenchmarkDataset,
     learning_rate: float = 1e-3,
     epochs: int = 50,
-    batch_size: int = 64,  # Smaller batch size due to Mamba complexity
-    optimizer_name: str = "AdamW",
+    batch_size: int = 256,
+    optimizer_name: str = "Adam",
     weight_decay: float = 1e-5,
     scheduler_patience: int = 5,
     scheduler_factor: float = 0.5,
@@ -31,67 +31,46 @@ def train_umamba_mag(
     quiet: bool = False,
 ):
     """
-    Train UMambaMag model for magnitude regression.
-    
-    Training methodology aligned with UMamba v3:
-    - Uses .max() for target magnitude extraction (correct after P-arrival)
-    - Scalar predictions only (single magnitude per waveform)
-
-    Important:
-        The training target uses y_temporal.max(dim=1)[0] instead of .mean()
-        because after the P-pick, the magnitude is constant at the source_magnitude
-        value. Using .mean() incorrectly averages with pre-P zeros, artificially
-        lowering the target and causing poor training convergence.
+    Train MagnitudeNet model for magnitude regression.
 
     Args:
         model_name: Name for saving model checkpoints
-        model: UMambaMag model instance
+        model: MagnitudeNet model instance
         data: Dataset to train on
         learning_rate: Learning rate for optimizer
         epochs: Number of training epochs
-        batch_size: Batch size for training (smaller for Mamba)
+        batch_size: Batch size for training
         optimizer_name: Optimizer type ("Adam", "AdamW", or "SGD")
         weight_decay: Weight decay for optimizer
         scheduler_patience: Patience for learning rate scheduler
         scheduler_factor: Factor to reduce learning rate by
         save_every: Save model every N epochs
         gradient_clip: Maximum gradient norm (None to disable)
-        early_stopping_patience: Epochs to wait before early stopping
+        early_stopping_patience: Stop training if no improvement for N epochs
         warmup_epochs: Number of epochs for learning rate warmup
         quiet: If True, disable tqdm progress bars
     """
-    print("\n" + "=" * 60)
-    print("TRAINING UMAMBAMAG")
-    print("=" * 60)
+    print("\n" + "=" * 50)
+    print("TRAINING MAGNITUDENET")
+    print("=" * 50)
     print(f"Model: {model_name}")
     print(f"Dataset: {data.__class__.__name__}")
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate}")
     print(f"Epochs: {epochs}")
-    print(f"Warmup epochs: {warmup_epochs}")
-    print("=" * 60)
+    print("=" * 50)
 
     # Get the device where the model is already placed
     device = next(model.parameters()).device
     print(f"Model is on device: {device}")
 
-    # Count parameters
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Total parameters: {total_params:,}")
-    print(f"Trainable parameters: {trainable_params:,}")
-
     # Load data
-    print(f"\nLoading data...")
     train_generator, train_loader, _ = dl.load_dataset(
         data, model, "train", batch_size=batch_size
     )
     dev_generator, dev_loader, _ = dl.load_dataset(
         data, model, "dev", batch_size=batch_size
     )
-
-    print(f"Train batches: {len(train_loader)}")
-    print(f"Dev batches: {len(dev_loader)}")
 
     # Setup optimizer
     if optimizer_name == "Adam":
@@ -100,11 +79,7 @@ def train_umamba_mag(
         )
     elif optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay,
-            betas=(0.9, 0.999),
-            eps=1e-8,
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
     elif optimizer_name == "SGD":
         optimizer = torch.optim.SGD(
@@ -119,21 +94,12 @@ def train_umamba_mag(
     # Loss function - MSE for regression
     criterion = nn.MSELoss()
 
-    # Learning rate scheduler with warmup and decay
-    base_lr = learning_rate
+    # Alternative loss functions you might want to try:
+    # criterion = nn.L1Loss()  # MAE - more robust to outliers
+    # criterion = nn.HuberLoss()  # Robust to outliers
 
-    def warmup_lambda(epoch):
-        # Warmup from 10% to 100% linearly over warmup_epochs
-        if epoch < warmup_epochs:
-            return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
-        return 1.0
-
-    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=warmup_lambda
-    )
-
-    # ReduceLROnPlateau for post-warmup adjustment
-    reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    # Learning rate scheduler - ReduceLROnPlateau (like UMamba V3)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
         factor=scheduler_factor,
@@ -141,7 +107,7 @@ def train_umamba_mag(
         verbose=True,
     )
 
-    def train_loop(dataloader, epoch):
+    def train_loop(dataloader):
         """Training loop for one epoch."""
         model.train()
         total_loss = 0
@@ -155,22 +121,14 @@ def train_umamba_mag(
         for batch in pbar:
             # Get input and target
             x = batch["X"].to(device)
-            y_temporal = batch["magnitude"].to(device)
-
-            # CRITICAL: Use .max() instead of .mean() to get true magnitude
-            # After P-pick, magnitude is constant at source_magnitude value
-            # Using .mean() incorrectly averages with pre-P zeros, lowering the target
-            if y_temporal.dim() == 2:
-                y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
-            else:
-                y_true = y_temporal.squeeze()
+            y_temporal = batch["magnitude"].to(device)  # Target magnitudes (batch, samples)
+            
+            # Use max magnitude as scalar target (like UMamba V3)
+            y_true = y_temporal.max(dim=1)[0]  # (batch,)
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
-            y_pred = model(x_preproc)  # Should output (batch,)
-
-            # Ensure y_pred is also 1D
-            y_pred = y_pred.squeeze()
+            y_pred = model(x_preproc)  # Shape: (batch,)
 
             # Calculate loss
             loss = criterion(y_pred, y_true)
@@ -182,19 +140,17 @@ def train_umamba_mag(
             # Gradient clipping
             grad_norm = 0.0
             if gradient_clip is not None:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), gradient_clip
-                )
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
 
             optimizer.step()
 
             # Track metrics
             batch_loss = loss.item()
             total_loss += batch_loss
-            total_mse += batch_loss
             with torch.no_grad():
                 mae = torch.abs(y_pred - y_true).mean().item()
                 total_mae += mae
+                total_mse += batch_loss
 
             # Update progress bar
             pbar.set_postfix({
@@ -224,22 +180,14 @@ def train_umamba_mag(
         with torch.no_grad():
             for batch in pbar:
                 x = batch["X"].to(device)
-                y_temporal = batch["magnitude"].to(device)
-
-                # CRITICAL: Use .max() instead of .mean() to get true magnitude
-                # After P-pick, magnitude is constant at source_magnitude value
-                # Using .mean() incorrectly averages with pre-P zeros, lowering the target
-                if y_temporal.dim() == 2:
-                    y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
-                else:
-                    y_true = y_temporal.squeeze()
+                y_temporal = batch["magnitude"].to(device)  # (batch, samples)
+                
+                # Use max magnitude as scalar target (like UMamba V3)
+                y_true = y_temporal.max(dim=1)[0]  # (batch,)
 
                 # Forward pass
                 x_preproc = model.annotate_batch_pre(x, {})
-                y_pred = model(x_preproc)  # Should output (batch,)
-                
-                # Ensure y_pred is also 1D
-                y_pred = y_pred.squeeze()
+                y_pred = model(x_preproc)  # (batch,)
 
                 # Calculate metrics
                 loss = criterion(y_pred, y_true)
@@ -247,8 +195,8 @@ def train_umamba_mag(
 
                 batch_loss = loss.item()
                 total_loss += batch_loss
-                total_mse += batch_loss
                 total_mae += mae.item()
+                total_mse += batch_loss
                 
                 # Update progress bar
                 pbar.set_postfix({
@@ -260,7 +208,7 @@ def train_umamba_mag(
         avg_mae = total_mae / num_batches
         avg_mse = total_mse / num_batches
         avg_rmse = avg_mse ** 0.5
-        
+
         return avg_loss, avg_mae, avg_mse, avg_rmse
 
     # Create save directory with timestamp
@@ -277,23 +225,27 @@ def train_umamba_mag(
     val_maes = []
     learning_rates = []
     epochs_without_improvement = 0
-
+    
+    # Track total training time
     training_start_time = time.time()
 
     for epoch in range(epochs):
-        print(f"\n{'='*60}")
+        print(f"\n{'='*50}")
         print(f"Epoch {epoch + 1}/{epochs}")
-
-        # Report current learning rate
-        current_lr = optimizer.param_groups[0]["lr"]
-        print(f"Learning Rate: {current_lr:.2e}")
-        print(f"{'='*60}")
+        print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
+        print(f"{'='*50}")
+        
+        # Manual warmup (like UMamba V3)
+        if epoch < warmup_epochs:
+            warmup_factor = (epoch + 1) / warmup_epochs
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = learning_rate * warmup_factor
 
         # Train
-        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader, epoch)
+        train_loss, train_mae, train_mse, train_rmse = train_loop(train_loader)
         train_losses.append(train_loss)
         train_maes.append(train_mae)
-        learning_rates.append(current_lr)
+        learning_rates.append(optimizer.param_groups[0]["lr"])
 
         # Validate
         val_loss, val_mae, val_mse, val_rmse = validation_loop(dev_loader)
@@ -301,18 +253,16 @@ def train_umamba_mag(
         val_maes.append(val_mae)
 
         # Print epoch summary
-        print(f"\n{'='*60}")
-        print(f"Epoch {epoch + 1} Summary:")
-        print(f"  Train - Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
-        print(f"  Val   - Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
-        print(f"{'='*60}")
+        print(f"\n{'='*50}")
+        print(f"Epoch {epoch + 1}/{epochs} Summary")
+        print(f"{'='*50}")
+        print(f"Training   -> Loss: {train_loss:.6f} | MSE: {train_mse:.6f} | RMSE: {train_rmse:.6f} | MAE: {train_mae:.6f}")
+        print(f"Validation -> Loss: {val_loss:.6f} | MSE: {val_mse:.6f} | RMSE: {val_rmse:.6f} | MAE: {val_mae:.6f}")
+        print(f"{'='*50}")
 
-        # Step warmup scheduler
-        warmup_scheduler.step()
-
-        # Step reduce scheduler after warmup
+        # Learning rate scheduling (ReduceLROnPlateau) after warmup
         if epoch >= warmup_epochs:
-            reduce_scheduler.step(val_loss)
+            scheduler.step(val_loss)
 
         # Check for improvement and early stopping
         if val_loss < best_val_loss:
@@ -334,10 +284,8 @@ def train_umamba_mag(
                         "optimizer": optimizer_name,
                         "weight_decay": weight_decay,
                         "scheduler_patience": scheduler_patience,
-                        "scheduler_factor": scheduler_factor,
                         "gradient_clip": gradient_clip,
                         "early_stopping_patience": early_stopping_patience,
-                        "warmup_epochs": warmup_epochs,
                     },
                 },
                 best_model_path,
@@ -373,10 +321,8 @@ def train_umamba_mag(
                         "optimizer": optimizer_name,
                         "weight_decay": weight_decay,
                         "scheduler_patience": scheduler_patience,
-                        "scheduler_factor": scheduler_factor,
                         "gradient_clip": gradient_clip,
                         "early_stopping_patience": early_stopping_patience,
-                        "warmup_epochs": warmup_epochs,
                     },
                 },
                 checkpoint_path,
@@ -400,15 +346,20 @@ def train_umamba_mag(
                 "optimizer": optimizer_name,
                 "weight_decay": weight_decay,
                 "scheduler_patience": scheduler_patience,
-                "scheduler_factor": scheduler_factor,
                 "gradient_clip": gradient_clip,
                 "early_stopping_patience": early_stopping_patience,
-                "warmup_epochs": warmup_epochs,
             },
         },
         final_model_path,
     )
     print(f"\nFinal model saved: {final_model_path}")
+
+    # Calculate total training time
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    hours = int(total_training_time // 3600)
+    minutes = int((total_training_time % 3600) // 60)
+    seconds = int(total_training_time % 60)
 
     # Save training history
     history = {
@@ -418,6 +369,7 @@ def train_umamba_mag(
         "val_maes": val_maes,
         "learning_rates": learning_rates,
         "best_val_loss": best_val_loss,
+        "total_training_time": total_training_time,
         "config": {
             "model_name": model_name,
             "learning_rate": learning_rate,
@@ -426,33 +378,24 @@ def train_umamba_mag(
             "optimizer": optimizer_name,
             "weight_decay": weight_decay,
             "scheduler_patience": scheduler_patience,
-            "scheduler_factor": scheduler_factor,
             "gradient_clip": gradient_clip,
             "early_stopping_patience": early_stopping_patience,
-            "warmup_epochs": warmup_epochs,
         },
     }
     history_path = os.path.join(save_dir, f"training_history_{script_datetime}.pt")
     torch.save(history, history_path)
     print(f"Training history saved: {history_path}")
 
-    # Calculate and display total training time
-    training_end_time = time.time()
-    total_training_time = training_end_time - training_start_time
-    hours = int(total_training_time // 3600)
-    minutes = int((total_training_time % 3600) // 60)
-    seconds = int(total_training_time % 60)
-
     # Print final summary
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 50)
     print("TRAINING COMPLETED")
-    print("=" * 60)
+    print("=" * 50)
     print(f"Best validation loss: {best_val_loss:.6f}")
     print(f"Best validation RMSE: {best_val_loss**0.5:.6f}")
     print(f"Final train loss: {train_losses[-1]:.6f}")
     print(f"Final val loss: {val_losses[-1]:.6f}")
-    print(f"Total Training Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
-    print("=" * 60)
+    print(f"Total training time: {hours:02d}h {minutes:02d}m {seconds:02d}s")
+    print("=" * 50)
 
     return history
 
@@ -464,7 +407,7 @@ def load_checkpoint(
     Load a saved checkpoint.
 
     Args:
-        model: UMambaMag model instance
+        model: MagnitudeNet model instance
         checkpoint_path: Path to checkpoint file
         optimizer: Optional optimizer to load state
         device: Device to load model on
@@ -490,36 +433,29 @@ def load_checkpoint(
 if __name__ == "__main__":
 
     # Initialize model
-    model = UMambaMag(
+    model = MagnitudeNet(
         in_channels=3,
         sampling_rate=100,
-        norm="std",
-        n_stages=4,
-        features_per_stage=[8, 16, 32, 64],
-        kernel_size=7,
-        strides=[2, 2, 2, 2],
-        n_blocks_per_stage=2,
-        n_conv_per_stage_decoder=2,
-        deep_supervision=False,
+        filter_factor=1,
+        lstm_hidden=128,
+        lstm_layers=2,
+        dropout=0.2,
     )
 
     # Load dataset
     data = sbd.ETHZ(sampling_rate=100)
 
     # Train model
-    history = train_umamba_mag(
-        model_name="umambamag_v1",
+    history = train_magnitude_net(
+        model_name="magnitudenet_v1",
         model=model,
         data=data,
         learning_rate=1e-3,
         epochs=50,
-        batch_size=64,
+        batch_size=256,
         optimizer_name="AdamW",
         weight_decay=1e-5,
-        scheduler_patience=7,
-        scheduler_factor=0.5,
+        scheduler_patience=5,
         save_every=5,
         gradient_clip=1.0,
-        early_stopping_patience=5,
-        warmup_epochs=5,
     )

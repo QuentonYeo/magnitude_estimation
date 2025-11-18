@@ -67,12 +67,16 @@ class MultiHeadSelfAttention(nn.Module):
 
 
 class MLP(nn.Module):
-    """MLP block with GELU activation"""
+    """MLP block with GELU activation
+    
+    Paper specifies: two fully connected layers with 200 and 100 neurons
+    """
 
-    def __init__(self, embed_dim, hidden_dim, dropout=0.1):
+    def __init__(self, embed_dim, hidden_dim1=200, hidden_dim2=100, dropout=0.1):
         super().__init__()
-        self.fc1 = nn.Linear(embed_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, embed_dim)
+        self.fc1 = nn.Linear(embed_dim, hidden_dim1)  # embed_dim -> 200
+        self.fc2 = nn.Linear(hidden_dim1, hidden_dim2)  # 200 -> 100
+        self.fc3 = nn.Linear(hidden_dim2, embed_dim)  # 100 -> embed_dim
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -80,6 +84,9 @@ class MLP(nn.Module):
         x = F.gelu(x)
         x = self.dropout(x)
         x = self.fc2(x)
+        x = F.gelu(x)
+        x = self.dropout(x)
+        x = self.fc3(x)
         x = self.dropout(x)
         return x
 
@@ -87,12 +94,12 @@ class MLP(nn.Module):
 class TransformerEncoder(nn.Module):
     """Transformer Encoder Block (Figure 1f)"""
 
-    def __init__(self, embed_dim, num_heads=4, mlp_hidden_dim=200, dropout=0.1):
+    def __init__(self, embed_dim, num_heads=4, mlp_hidden_dim1=200, mlp_hidden_dim2=100, dropout=0.1):
         super().__init__()
         self.norm1 = nn.LayerNorm(embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
         self.msa = MultiHeadSelfAttention(embed_dim, num_heads, dropout)
-        self.mlp = MLP(embed_dim, mlp_hidden_dim, dropout)
+        self.mlp = MLP(embed_dim, mlp_hidden_dim1, mlp_hidden_dim2, dropout)
 
     def forward(self, x):
         # Norm -> MSA -> Residual
@@ -206,7 +213,8 @@ class ViTMagnitudeEstimator(WaveformModel):
         embed_dim=100,
         num_transformer_blocks=4,
         num_heads=4,
-        transformer_mlp_dim=200,
+        transformer_mlp_dim1=200,
+        transformer_mlp_dim2=100,
         final_mlp_dims=[1000, 500],
         dropout=0.1,
         final_dropout=0.5,
@@ -226,6 +234,10 @@ class ViTMagnitudeEstimator(WaveformModel):
             else:
                 setattr(self, option, False)
 
+        # Remove legacy parameter names that shouldn't be passed to parent
+        if "transformer_mlp_dim" in kwargs:
+            del kwargs["transformer_mlp_dim"]
+
         super().__init__(
             citation=citation,
             in_samples=3001,  # 30 seconds at 100Hz
@@ -244,7 +256,8 @@ class ViTMagnitudeEstimator(WaveformModel):
         self.embed_dim = embed_dim
         self.num_transformer_blocks = num_transformer_blocks
         self.num_heads = num_heads
-        self.transformer_mlp_dim = transformer_mlp_dim
+        self.transformer_mlp_dim1 = transformer_mlp_dim1
+        self.transformer_mlp_dim2 = transformer_mlp_dim2
         self.final_mlp_dims = final_mlp_dims
         self.dropout = dropout
         self.final_dropout = final_dropout
@@ -289,7 +302,8 @@ class ViTMagnitudeEstimator(WaveformModel):
                 TransformerEncoder(
                     embed_dim=embed_dim,
                     num_heads=num_heads,
-                    mlp_hidden_dim=transformer_mlp_dim,
+                    mlp_hidden_dim1=transformer_mlp_dim1,
+                    mlp_hidden_dim2=transformer_mlp_dim2,
                     dropout=dropout,
                 )
                 for _ in range(num_transformer_blocks)
@@ -409,7 +423,8 @@ class ViTMagnitudeEstimator(WaveformModel):
         model_args["embed_dim"] = self.embed_dim
         model_args["num_transformer_blocks"] = self.num_transformer_blocks
         model_args["num_heads"] = self.num_heads
-        model_args["transformer_mlp_dim"] = self.transformer_mlp_dim
+        model_args["transformer_mlp_dim1"] = self.transformer_mlp_dim1
+        model_args["transformer_mlp_dim2"] = self.transformer_mlp_dim2
         model_args["final_mlp_dims"] = self.final_mlp_dims
         model_args["dropout"] = self.dropout
         model_args["final_dropout"] = self.final_dropout

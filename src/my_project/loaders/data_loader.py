@@ -11,17 +11,22 @@ from seisbench.util import worker_seeding
 from my_project.utils.utils import (
     plot_magnitude_distribution,
     plot_samples,
+    plot_snr_distribution,
 )
 from my_project.loaders.magnitude_labellers import MagnitudeLabeller
 from my_project.models.phasenet_mag.model import PhaseNetMag
+from my_project.models.phasenet_mag_v2.model import PhaseNetMagv2
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
+from my_project.models.AMAG_v3.model import MagnitudeNet as MagnitudeNetV3
 from my_project.models.EQTransformer.model import EQTransformerMag
+from my_project.models.EQTransformer_v2.model import EQTransformerMagV2
 from my_project.models.ViT.model import ViTMagnitudeEstimator
 from my_project.models.UMamba_mag.model import UMambaMag
 from my_project.models.UMamba_mag_v2.model import UMambaMag as UMambaMagV2
 from my_project.models.UMamba_mag_v3.model import UMambaMag as UMambaMagV3
+from my_project.models.MagNet import MagNet
 
 # Only training for S and P picks, map the labels
 phase_dict = {
@@ -132,9 +137,9 @@ def load_dataset(
 
     ds_generator = sbg.GenericGenerator(dataset)
 
-    if isinstance(model, (PhaseNetMag, MagnitudeNet)):
+    if isinstance(model, (PhaseNetMag, PhaseNetMagv2, MagnitudeNet, MagnitudeNetV3, MagNet)):
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3000))
-    elif isinstance(model, (EQTransformerMag, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3)):
+    elif isinstance(model, (EQTransformerMag, EQTransformerMagV2, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3)):
         # EQTransformerMag, ViT, UMamba V1, V2 and V3 use 30-second windows (3001 samples at 100Hz)
         ds_generator.add_augmentations(get_magnitude_and_phase_augmentation(3001))
     elif isinstance(model, (sbm.PhaseNet, PhaseNetLSTM, PhaseNetConvLSTM)):
@@ -158,7 +163,7 @@ if __name__ == "__main__":
     # Load dataset first
     import seisbench.data as sbd
 
-    data = sbd.ETHZ(sampling_rate=100)  # Or whatever dataset you want to use
+    data = sbd.STEAD(sampling_rate=100)  # Or whatever dataset you want to use
 
     # Load standard Phasenet
     model = sbm.PhaseNet(
@@ -169,9 +174,15 @@ if __name__ == "__main__":
 
     train_generator, _, data = load_dataset(data, model, "train")
 
-    plot_samples(train_generator)
+    # plot_samples(train_generator)
+    # plt.savefig("samples_plot.png", dpi=300, bbox_inches="tight")
+    # print("Saved samples plot to samples_plot.png")
+    # plt.close()
 
     plot_magnitude_distribution(data)
-    # dump_metadata_to_csv(data, "GEOFON_metadata.csv")
+    plt.savefig("magnitude_distribution.png", dpi=300, bbox_inches="tight")
+    print("Saved magnitude distribution to magnitude_distribution.png")
+    plt.close()
 
-    plt.show()
+    plot_snr_distribution(data)
+    # dump_metadata_to_csv(data, "GEOFON_metadata.csv")

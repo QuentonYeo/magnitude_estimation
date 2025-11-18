@@ -1,3 +1,23 @@
+"""
+Training script for Vision Transformer magnitude estimation model.
+
+Training methodology from paper (Kingma & Ba, 2014):
+- Learning rate: 0.001
+- Reduced by factor of √0.1 ≈ 0.316 when validation loss fails to decrease for 10 consecutive epochs
+- Maximum 200 epochs
+- Early stopping: 25 epochs without improvement
+- Loss function: Mean Square Error (MSE)
+- Uses .max() for target magnitude extraction (correct after P-arrival)
+- Scalar predictions only (single magnitude per waveform)
+- Dropout enabled during both training and testing (MC Dropout for uncertainty)
+
+Important:
+    The training target uses y_temporal.max(dim=1)[0] instead of .mean()
+    because after the P-pick, the magnitude is constant at the source_magnitude
+    value. Using .mean() incorrectly averages with pre-P zeros, artificially
+    lowering the target and causing poor training convergence.
+"""
+
 import os
 import argparse
 import time
@@ -16,37 +36,50 @@ def train_vit_magnitude(
     model_name: str,
     model: ViTMagnitudeEstimator,
     data: sbd.BenchmarkDataset,
-    learning_rate: float = 1e-3,  # Lower LR typical for transformers
-    epochs: int = 100,
+    learning_rate: float = 1e-3,  # Paper specifies 0.001
+    epochs: int = 200,  # Paper specifies 200 epochs max
     batch_size: int = 64,  # Smaller batch size for ViT due to memory
-    optimizer_name: str = "AdamW",
-    weight_decay: float = 1e-2,  # Higher weight decay for transformers
-    scheduler_patience: int = 10,
-    scheduler_factor: float = 0.5,
-    save_every: int = 5,
+    optimizer_name: str = "Adam",  # Paper uses Adam optimizer
+    weight_decay: float = 0.0,  # No weight decay mentioned in paper
+    scheduler_patience: int = 5,  # UPDATED: Reduced from 10 to 5 for faster response to instability
+    scheduler_factor: float = 0.5,  # UPDATED: Less aggressive than √0.1, more stable
+    scheduler_threshold: float = 1e-4,  # UPDATED: Add threshold to avoid noise-triggered reductions
+    save_every: int = 10,
     gradient_clip: Optional[float] = 1.0,
-    early_stopping_patience: int = 5,
-    warmup_epochs: int = 5,  # Longer warmup for transformers
+    early_stopping_patience: int = 25,  # Paper: stop after 25 epochs without improvement
+    warmup_epochs: int = 0,  # No warmup mentioned in paper
     quiet: bool = False,
 ):
     """
     Train ViTMagnitudeEstimator model for magnitude regression.
+    
+    Training methodology from paper with stability improvements:
+    - Learning rate: 0.001, reduced by 0.5 when validation loss stagnates for 5 epochs
+    - UPDATED: Reduced patience from 10 to 5 epochs for faster response to instability
+    - UPDATED: Factor changed from √0.1 (0.316) to 0.5 for less aggressive reduction
+    - UPDATED: Added threshold (1e-4) to avoid noise-triggered reductions
+    - Maximum 200 epochs, early stopping at 25 epochs without improvement
+    - Adam optimizer
+    - MSE loss function
+    - Uses .max() for target magnitude extraction (not .mean())
+    - Dropout enabled during training and testing for MC Dropout uncertainty estimation
 
     Args:
         model_name: Name for saving model checkpoints
         model: ViTMagnitudeEstimator model instance
         data: Dataset to train on
-        learning_rate: Learning rate for optimizer (lower for transformers)
-        epochs: Number of training epochs
+        learning_rate: Learning rate for optimizer (paper: 0.001)
+        epochs: Number of training epochs (paper: max 200)
         batch_size: Batch size for training (smaller for ViT memory usage)
-        optimizer_name: Optimizer type ("Adam", "AdamW", or "SGD")
-        weight_decay: Weight decay for optimizer (higher for transformers)
-        scheduler_patience: Patience for learning rate scheduler
-        scheduler_factor: Factor to reduce learning rate by
+        optimizer_name: Optimizer type (paper: "Adam")
+        weight_decay: Weight decay for optimizer (paper: not specified, using 0)
+        scheduler_patience: Patience for learning rate scheduler (UPDATED: 5 epochs, was 10)
+        scheduler_factor: Factor to reduce learning rate by (UPDATED: 0.5, was √0.1 ≈ 0.316)
+        scheduler_threshold: Minimum change threshold to trigger reduction (UPDATED: 1e-4)
         save_every: Save model every N epochs
         gradient_clip: Maximum gradient norm (None to disable)
-        early_stopping_patience: Stop training if no improvement for N epochs
-        warmup_epochs: Number of epochs for learning rate warmup (longer for transformers)
+        early_stopping_patience: Stop training if no improvement for N epochs (paper: 25)
+        warmup_epochs: Number of epochs for learning rate warmup (paper: not used)
         quiet: If True, disable tqdm progress bars
     """
     print("\n" + "=" * 60)
@@ -54,12 +87,18 @@ def train_vit_magnitude(
     print("=" * 60)
     print(f"Model: {model_name}")
     print(f"Dataset: {data.__class__.__name__}")
-    print(f"Batch size: {batch_size}")
-    print(f"Learning rate: {learning_rate}")
-    print(f"Epochs: {epochs}")
-    print(f"Weight decay: {weight_decay}")
-    print(f"Optimizer: {optimizer_name}")
-    print(f"Gradient clipping: {gradient_clip}")
+    print(f"Training config with stability improvements:")
+    print(f"  - Learning rate: {learning_rate} (reduced by {scheduler_factor:.3f})")
+    print(f"  - Scheduler patience: {scheduler_patience} epochs (UPDATED: was 10)")
+    print(f"  - Scheduler threshold: {scheduler_threshold} (NEW: ignore small changes)")
+    print(f"  - Max epochs: {epochs}")
+    print(f"  - Early stopping patience: {early_stopping_patience} epochs")
+    print(f"  - Batch size: {batch_size}")
+    print(f"  - Weight decay: {weight_decay}")
+    print(f"  - Optimizer: {optimizer_name}")
+    print(f"  - Gradient clipping: {gradient_clip}")
+    print(f"  - Loss: Mean Square Error (MSE)")
+    print(f"  - MC Dropout: Enabled (avg of 50 runs during testing)")
     print("=" * 60)
 
     # Get the device where the model is already placed
@@ -85,17 +124,21 @@ def train_vit_magnitude(
     print(f"Training samples: {len(train_generator)}")
     print(f"Validation samples: {len(dev_generator)}")
 
-    # Setup optimizer - AdamW is typically best for transformers
+    # Setup optimizer - Paper uses Adam optimizer
     if optimizer_name == "Adam":
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+            model.parameters(), 
+            lr=learning_rate, 
+            weight_decay=weight_decay,
+            betas=(0.9, 0.999),  # Standard Adam betas
+            eps=1e-8,
         )
     elif optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
             weight_decay=weight_decay,
-            betas=(0.9, 0.999),  # Standard transformer betas
+            betas=(0.9, 0.999),
             eps=1e-8,
         )
     elif optimizer_name == "SGD":
@@ -108,33 +151,41 @@ def train_vit_magnitude(
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
-    # Loss function - MSE for magnitude regression
+    # Loss function - MSE for magnitude regression (as specified in paper)
     criterion = nn.MSELoss()
 
+    # Note: Paper specifies MSE loss
     # Alternative loss functions for experimentation:
     # criterion = nn.L1Loss()  # MAE - more robust to outliers
     # criterion = nn.HuberLoss(delta=1.0)  # Robust to outliers
     # criterion = nn.SmoothL1Loss()  # Similar to Huber loss
 
-    # Learning rate scheduler with warmup
-    def warmup_lambda(epoch):
-        """Linear warmup followed by constant learning rate"""
-        if epoch < warmup_epochs:
-            return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
-        return 1.0
+    # Learning rate scheduler - Paper: reduce by √0.1 after 10 epochs without improvement
+    # No warmup mentioned in paper, so we skip it
+    if warmup_epochs > 0:
+        def warmup_lambda(epoch):
+            """Linear warmup followed by constant learning rate"""
+            if epoch < warmup_epochs:
+                return 0.1 + 0.9 * (epoch / float(max(1, warmup_epochs)))
+            return 1.0
 
-    warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=warmup_lambda
-    )
+        warmup_scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer, lr_lambda=warmup_lambda
+        )
+    else:
+        warmup_scheduler = None
 
-    # ReduceLROnPlateau for post-warmup adjustment
+    # ReduceLROnPlateau - UPDATED for better stability
     reduce_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
-        factor=scheduler_factor,
-        patience=scheduler_patience,
+        factor=scheduler_factor,  # 0.5 (less aggressive than paper's √0.1)
+        patience=scheduler_patience,  # 5 epochs (faster response than paper's 10)
+        threshold=scheduler_threshold,  # 1e-4 (ignore small fluctuations)
+        threshold_mode="rel",  # Relative threshold
         verbose=True,
         min_lr=1e-7,  # Minimum learning rate
+        cooldown=0,  # No cooldown period
     )
 
     def train_loop(dataloader):
@@ -151,15 +202,15 @@ def train_vit_magnitude(
         for batch in pbar:
             # Get input and target
             x = batch["X"].to(device)
-            y_true = batch["magnitude"].to(device)  # Target magnitudes
+            y_temporal = batch["magnitude"].to(device)  # Target magnitudes (batch, samples)
 
-            # Handle target shape - should be (batch,) for scalar regression
-            if y_true.dim() == 2:
-                # If shape is (batch, samples), take mean or first value
-                y_true = y_true.mean(dim=1)  # Average across time for single magnitude
-            
-            # Ensure y_true is 1D: (batch,)
-            y_true = y_true.squeeze()
+            # CRITICAL: Use .max() instead of .mean() to get true magnitude
+            # After P-pick, magnitude is constant at source_magnitude value
+            # Using .mean() incorrectly averages with pre-P zeros, lowering the target
+            if y_temporal.dim() == 2:
+                y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
+            else:
+                y_true = y_temporal.squeeze()
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
@@ -218,15 +269,15 @@ def train_vit_magnitude(
         with torch.no_grad():
             for batch in pbar:
                 x = batch["X"].to(device)
-                y_true = batch["magnitude"].to(device)
+                y_temporal = batch["magnitude"].to(device)
 
-                # Handle target shape - should be (batch,) for scalar regression
-                if y_true.dim() == 2:
-                    # If shape is (batch, samples), take mean or first value
-                    y_true = y_true.mean(dim=1)  # Average across time for single magnitude
-                
-                # Ensure y_true is 1D: (batch,)
-                y_true = y_true.squeeze()
+                # CRITICAL: Use .max() instead of .mean() to get true magnitude
+                # After P-pick, magnitude is constant at source_magnitude value
+                # Using .mean() incorrectly averages with pre-P zeros, lowering the target
+                if y_temporal.dim() == 2:
+                    y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
+                else:
+                    y_true = y_temporal.squeeze()
 
                 # Forward pass
                 x_preproc = model.annotate_batch_pre(x, {})
@@ -304,7 +355,7 @@ def train_vit_magnitude(
         print(f"{'='*60}")
 
         # Learning rate scheduling
-        if epoch < warmup_epochs:
+        if warmup_scheduler is not None and epoch < warmup_epochs:
             warmup_scheduler.step()
         else:
             reduce_scheduler.step(val_loss)
@@ -430,12 +481,12 @@ if __name__ == "__main__":
         choices=["ETHZ", "GEOFON", "STEAD"],
         help="Dataset to use",
     )
-    parser.add_argument("--epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--epochs", type=int, default=200, help="Number of epochs (paper: 200)")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
     parser.add_argument(
-        "--learning_rate", type=float, default=1e-4, help="Learning rate"
+        "--learning_rate", type=float, default=1e-3, help="Learning rate (paper: 0.001)"
     )
-    parser.add_argument("--weight_decay", type=float, default=1e-2, help="Weight decay")
+    parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay (paper: not specified)")
     parser.add_argument(
         "--embed_dim", type=int, default=100, help="Embedding dimension"
     )
@@ -479,8 +530,13 @@ if __name__ == "__main__":
         epochs=args.epochs,
         batch_size=args.batch_size,
         weight_decay=args.weight_decay,
-        optimizer_name="AdamW",
+        optimizer_name="Adam",  # Paper specifies Adam
         gradient_clip=1.0,
+        scheduler_patience=5,  # UPDATED: 5 epochs (was 10)
+        scheduler_factor=0.5,  # UPDATED: 0.5 (was √0.1 ≈ 0.316)
+        scheduler_threshold=1e-4,  # NEW: ignore small fluctuations
+        early_stopping_patience=25,  # Paper: 25 epochs
+        warmup_epochs=0,  # Not mentioned in paper
     )
 
     print(f"\nTraining completed! Best validation loss: {history['best_val_loss']:.6f}")

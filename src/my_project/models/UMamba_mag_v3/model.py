@@ -517,10 +517,16 @@ class UMambaMag(WaveformModel):
         
         # Uncertainty head: Global log variance
         if use_uncertainty:
+            uncertainty_linear = nn.Linear(features_per_stage[-1], 1)
+            # Initialize with positive bias to prevent collapse
+            # Start with log_var ≈ 0, which gives precision = exp(0) = 1
+            nn.init.constant_(uncertainty_linear.bias, 0.0)
+            nn.init.normal_(uncertainty_linear.weight, mean=0.0, std=0.01)
+            
             self.uncertainty_head = nn.Sequential(
                 nn.AdaptiveAvgPool1d(1),
                 nn.Flatten(),
-                nn.Linear(features_per_stage[-1], 1),
+                uncertainty_linear,
             )
         else:
             self.uncertainty_head = None
@@ -587,6 +593,10 @@ class UMambaMag(WaveformModel):
             # Uncertainty estimates
             if self.use_uncertainty and (self.training or return_all or return_uncertainty):
                 log_var = self.uncertainty_head(final_features).squeeze(-1)  # (batch,)
+                # Clamp log_var to prevent numerical instability
+                # log_var in [-3, 3] gives precision in [exp(-3), exp(3)] ≈ [0.05, 20]
+                # This is tighter than [-5, 3] to prevent immediate saturation
+                log_var = torch.clamp(log_var, min=-3.0, max=3.0)
                 outputs.append(log_var)
             
             return tuple(outputs) if len(outputs) > 1 else outputs[0]

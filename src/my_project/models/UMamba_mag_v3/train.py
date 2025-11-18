@@ -6,6 +6,38 @@ Implements triple-head training with:
 - Temporal head: Per-timestep magnitude prediction (auxiliary task)
 - Uncertainty head: Automatic sample weighting via learned uncertainty
 - Loss: Kendall & Gal 2017 uncertainty-weighted MSE with configurable weights
+
+Important Notes:
+    The uncertainty head outputs log_var (log variance) which is used to weight
+    the loss via precision = exp(-log_var). To prevent numerical instability:
+    - log_var is clamped to [-3, 3] in the model's forward pass
+    - This keeps precision in [exp(-3), exp(3)] ≈ [0.05, 20]
+    - The uncertainty head is initialized with zero bias (log_var ≈ 0 initially)
+    
+    Without clamping, log_var can decrease indefinitely during training, causing
+    precision to explode and the loss to become unstable. The tighter [-3, 3]
+    range (vs the original [-5, 3]) prevents immediate saturation at the bounds.
+
+Training History Format:
+    Unlike other models (PhaseNet, EQTransformer, UMamba V1/V2) which save simple
+    history with keys like 'train_losses' and 'val_losses', this model saves
+    detailed metrics for each head:
+    
+    Keys in history dict:
+        - train_loss, val_loss: Combined weighted loss
+        - train_loss_scalar, val_loss_scalar: Scalar head loss (global magnitude)
+        - train_loss_temporal, val_loss_temporal: Temporal head loss (per-timestep)
+        - train_uncertainty, val_uncertainty: Log variance (if use_uncertainty=True)
+        - learning_rates: Learning rate per epoch
+    
+    To plot training history:
+        from my_project.utils.utils import plot_training_history
+        
+        # Simple view (compatible with all models):
+        plot_training_history("path/to/training_history.pt")
+        
+        # Detailed view (shows scalar/temporal/uncertainty breakdown):
+        plot_training_history("path/to/training_history.pt", detailed_metrics=True)
 """
 
 import os
@@ -50,8 +82,13 @@ def train_umamba_mag_v3(
     
     Loss:
         If uncertainty head enabled:
-            L = w_s * (precision * MSE_scalar + log_var) + w_t * (precision * MSE_temporal + log_var)
+            L = w_s * (0.5 * precision * MSE_scalar + 0.5 * log_var) + 
+                w_t * (0.5 * precision * MSE_temporal + 0.5 * log_var)
             where precision = exp(-log_var)
+            
+            The 0.5 factor is from Kendall & Gal 2017:
+            - Prevents negative loss when log_var < 0
+            - Balances error term and regularization term
         
         If uncertainty head disabled:
             L = w_s * MSE_scalar + w_t * MSE_temporal
@@ -168,8 +205,18 @@ def train_umamba_mag_v3(
     best_val_loss = float("inf")
     epochs_without_improvement = 0
     
+    # Track training time
+    import time
+    training_start_time = time.time()
+    
     # Training loop
     for epoch in range(1, epochs + 1):
+        # Print epoch header
+        print(f"\n{'='*60}")
+        print(f"Epoch {epoch}/{epochs}")
+        print(f"Learning Rate: {optimizer.param_groups[0]['lr']:.6f}")
+        print(f"{'='*60}")
+        
         # Warmup learning rate
         if epoch <= warmup_epochs:
             warmup_factor = epoch / warmup_epochs
@@ -184,8 +231,11 @@ def train_umamba_mag_v3(
         train_losses = {'total': [], 'scalar': [], 'temporal': []}
         if use_uncertainty:
             train_losses['uncertainty'] = []
+            train_losses['max_precision'] = []
+            train_losses['min_log_var'] = []
+            epoch_warned = False  # Track if we've warned this epoch
         
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs} [Train]", disable=quiet)
+        pbar = tqdm(train_loader, desc="Training", disable=quiet, leave=False)
         for batch in pbar:
             x = batch["X"].to(model.device)
             y_temporal = batch["magnitude"].to(model.device)  # (batch, samples)
@@ -202,17 +252,31 @@ def train_umamba_mag_v3(
                 pred_scalar, pred_temporal, log_var = model(x_preproc, return_all=True)
                 
                 # Kendall & Gal 2017 uncertainty-weighted loss
+                # Correct formulation: L = 0.5 * precision * error + 0.5 * log_var
+                # For multi-task: L = sum_i [ w_i * (0.5 * precision * error_i + 0.5 * log_var) ]
                 precision = torch.exp(-log_var)  # (batch,)
                 
+                # Track statistics for epoch summary
+                train_losses['max_precision'].append(precision.max().item())
+                train_losses['min_log_var'].append(log_var.min().item())
+                
+                # Monitor for numerical instability (once per epoch)
+                if not epoch_warned and precision.max() > 15:
+                    print(f"\n⚠ Warning: High precision detected (max={precision.max().item():.2f}). "
+                          f"log_var range: [{log_var.min().item():.3f}, {log_var.max().item():.3f}]")
+                    epoch_warned = True
+                
                 # Scalar loss with uncertainty weighting
+                # L_scalar = 0.5 * precision * MSE + 0.5 * log_var
                 scalar_error = (pred_scalar - y_scalar) ** 2  # (batch,)
-                loss_scalar = (precision * scalar_error + log_var).mean()
+                loss_scalar = (0.5 * precision * scalar_error + 0.5 * log_var).mean()
                 
                 # Temporal loss with uncertainty weighting
+                # L_temporal = 0.5 * precision * MSE + 0.5 * log_var
                 temporal_error = ((pred_temporal - y_temporal) ** 2).mean(dim=1)  # (batch,)
-                loss_temporal = (precision * temporal_error + log_var).mean()
+                loss_temporal = (0.5 * precision * temporal_error + 0.5 * log_var).mean()
                 
-                # Combined loss
+                # Combined loss with task weighting
                 loss = scalar_weight * loss_scalar + temporal_weight * loss_temporal
                 
                 # Record raw losses (without uncertainty weighting) for monitoring
@@ -275,7 +339,7 @@ def train_umamba_mag_v3(
             val_losses['uncertainty'] = []
         
         with torch.no_grad():
-            pbar = tqdm(dev_loader, desc=f"Epoch {epoch}/{epochs} [Val]", disable=quiet)
+            pbar = tqdm(dev_loader, desc="Validation", disable=quiet, leave=False)
             for batch in pbar:
                 x = batch["X"].to(model.device)
                 y_temporal = batch["magnitude"].to(model.device)
@@ -288,12 +352,12 @@ def train_umamba_mag_v3(
                     # Triple-head validation
                     pred_scalar, pred_temporal, log_var = model(x_preproc, return_all=True)
                     
-                    # Uncertainty-weighted loss
+                    # Uncertainty-weighted loss (same as training)
                     precision = torch.exp(-log_var)
                     scalar_error = (pred_scalar - y_scalar) ** 2
-                    loss_scalar = (precision * scalar_error + log_var).mean()
+                    loss_scalar = (0.5 * precision * scalar_error + 0.5 * log_var).mean()
                     temporal_error = ((pred_temporal - y_temporal) ** 2).mean(dim=1)
-                    loss_temporal = (precision * temporal_error + log_var).mean()
+                    loss_temporal = (0.5 * precision * temporal_error + 0.5 * log_var).mean()
                     loss = scalar_weight * loss_scalar + temporal_weight * loss_temporal
                     
                     # Record raw losses
@@ -338,28 +402,37 @@ def train_umamba_mag_v3(
         # Compute metrics for logging
         train_rmse_scalar = np.sqrt(train_loss_scalar)
         val_rmse_scalar = np.sqrt(val_loss_scalar)
+        train_rmse_temporal = np.sqrt(train_loss_temporal)
+        val_rmse_temporal = np.sqrt(val_loss_temporal)
         
-        print(f"Epoch {epoch}/{epochs}:")
+        # Print epoch summary
+        print(f"\n{'='*60}")
+        print(f"Epoch {epoch}/{epochs} Summary")
+        print(f"{'='*60}")
         if use_uncertainty:
-            print(f"  Train - Loss: {train_loss:.6f} | Scalar: {train_loss_scalar:.6f} ({train_rmse_scalar:.4f}) | Temporal: {train_loss_temporal:.6f} | log_var: {train_uncertainty:.3f}")
-            print(f"  Val   - Loss: {val_loss:.6f} | Scalar: {val_loss_scalar:.6f} ({val_rmse_scalar:.4f}) | Temporal: {val_loss_temporal:.6f} | log_var: {val_uncertainty:.3f}")
+            max_precision_train = np.max(train_losses['max_precision'])
+            min_log_var_train = np.min(train_losses['min_log_var'])
+            print(f"Training   -> Loss: {train_loss:.6f} | Scalar: {train_loss_scalar:.6f} (RMSE: {train_rmse_scalar:.4f}) | Temporal: {train_loss_temporal:.6f} (RMSE: {train_rmse_temporal:.4f}) | log_var: {train_uncertainty:.3f}")
+            print(f"               Uncertainty: log_var_mean={train_uncertainty:.3f}, log_var_min={min_log_var_train:.3f}, precision_max={max_precision_train:.2f}")
+            print(f"Validation -> Loss: {val_loss:.6f} | Scalar: {val_loss_scalar:.6f} (RMSE: {val_rmse_scalar:.4f}) | Temporal: {val_loss_temporal:.6f} (RMSE: {val_rmse_temporal:.4f}) | log_var: {val_uncertainty:.3f}")
         else:
-            print(f"  Train - Loss: {train_loss:.6f} | Scalar: {train_loss_scalar:.6f} ({train_rmse_scalar:.4f}) | Temporal: {train_loss_temporal:.6f}")
-            print(f"  Val   - Loss: {val_loss:.6f} | Scalar: {val_loss_scalar:.6f} ({val_rmse_scalar:.4f}) | Temporal: {val_loss_temporal:.6f}")
-        print(f"  LR: {current_lr:.2e}")
+            print(f"Training   -> Loss: {train_loss:.6f} | Scalar: {train_loss_scalar:.6f} (RMSE: {train_rmse_scalar:.4f}) | Temporal: {train_loss_temporal:.6f} (RMSE: {train_rmse_temporal:.4f})")
+            print(f"Validation -> Loss: {val_loss:.6f} | Scalar: {val_loss_scalar:.6f} (RMSE: {val_rmse_scalar:.4f}) | Temporal: {val_loss_temporal:.6f} (RMSE: {val_rmse_temporal:.4f})")
+        print(f"{'='*60}")
         
         # Learning rate scheduling (based on total validation loss)
         if epoch > warmup_epochs:
             scheduler.step(val_loss)
         
-        # Save checkpoint
+        # Check for improvement and save best model
         is_best = val_loss < best_val_loss
         if is_best:
             best_val_loss = val_loss
             epochs_without_improvement = 0
-            print(f"  *** New best validation loss: {val_loss:.6f} ***")
+            print(f"✓ New best model saved! Val Loss: {val_loss:.6f}")
         else:
             epochs_without_improvement += 1
+            print(f"No improvement for {epochs_without_improvement} epoch(s)")
         
         if epoch % save_every == 0 or is_best:
             checkpoint = {
@@ -377,20 +450,16 @@ def train_umamba_mag_v3(
             if is_best:
                 save_path = os.path.join(save_dir, "best_model.pt")
                 torch.save(checkpoint, save_path)
-                print(f"  Saved best model to {save_path}")
             
             if epoch % save_every == 0:
                 save_path = os.path.join(save_dir, f"checkpoint_epoch_{epoch}.pt")
                 torch.save(checkpoint, save_path)
-                print(f"  Saved checkpoint to {save_path}")
         
         # Early stopping
         if epochs_without_improvement >= early_stopping_patience:
-            print(f"\nEarly stopping triggered after {epoch} epochs")
-            print(f"No improvement for {early_stopping_patience} epochs")
+            print(f"\nEarly stopping triggered after {early_stopping_patience} epochs without improvement")
+            print(f"Best validation loss: {best_val_loss:.6f}")
             break
-        
-        print()
     
     # Save final model and history
     final_checkpoint = {
@@ -409,11 +478,22 @@ def train_umamba_mag_v3(
     history_path = os.path.join(save_dir, "training_history.pt")
     torch.save(history, history_path)
     
+    # Calculate and display total training time
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+    hours = int(total_training_time // 3600)
+    minutes = int((total_training_time % 3600) // 60)
+    seconds = int(total_training_time % 60)
+    
+    # Print final summary
     print("\n" + "=" * 60)
     print("TRAINING COMPLETED")
     print("=" * 60)
     print(f"Best validation loss: {best_val_loss:.6f}")
-    print(f"Final validation loss: {val_loss:.6f}")
+    print(f"Best validation RMSE: {best_val_loss**0.5:.6f}")
+    print(f"Final train loss: {history['train_loss'][-1]:.6f}")
+    print(f"Final val loss: {history['val_loss'][-1]:.6f}")
+    print(f"Total Training Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
     print(f"Models saved to: {save_dir}")
     print("=" * 60 + "\n")
     

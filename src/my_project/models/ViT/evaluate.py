@@ -1,3 +1,17 @@
+"""
+Evaluation script for Vision Transformer magnitude estimation model.
+
+Evaluation methodology aligned with UMamba v3:
+- Uses .max() for target magnitude extraction (correct after P-arrival)
+- Scalar predictions only (single magnitude per waveform)
+- Comprehensive metrics and visualization
+
+Important:
+    The evaluation target uses y_temporal.max(dim=1)[0] instead of .mean()
+    because after the P-pick, the magnitude is constant at the source_magnitude
+    value. This matches the training methodology for fair comparison.
+"""
+
 import os
 import argparse
 import numpy as np
@@ -23,6 +37,11 @@ def evaluate_vit_magnitude(
 ):
     """
     Evaluate ViTMagnitudeEstimator model for magnitude regression.
+    
+    Evaluation methodology aligned with UMamba v3:
+    - Uses .max() for target magnitude (not .mean())
+    - Computes MSE, RMSE, MAE, R² on scalar predictions
+    - One prediction per waveform for fair comparison
 
     Args:
         model: ViTMagnitudeEstimator model instance
@@ -94,12 +113,15 @@ def evaluate_vit_magnitude(
                 start_time.record()
 
             x = batch["X"].to(device)
-            y_true = batch["magnitude"].to(device)
+            y_temporal = batch["magnitude"].to(device)  # (batch, samples)
 
-            # Handle target shape - should be (batch,) for scalar regression
-            if y_true.dim() == 2:
-                y_true = y_true.mean(dim=1)
-            y_true = y_true.squeeze()
+            # CRITICAL: Use .max() instead of .mean() to get true magnitude
+            # After P-pick, magnitude is constant at source_magnitude value
+            # Using .mean() incorrectly averages with pre-P zeros, lowering the target
+            if y_temporal.dim() == 2:
+                y_true = y_temporal.max(dim=1)[0]  # (batch,) - matches UMamba v3 methodology
+            else:
+                y_true = y_temporal.squeeze()
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})

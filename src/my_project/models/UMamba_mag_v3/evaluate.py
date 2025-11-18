@@ -145,7 +145,7 @@ def evaluate_umamba_mag_v3(
             x = batch["X"].to(device_used)
             y_temporal = batch["magnitude"].to(device_used)  # (batch, samples)
             # True magnitude is the max value (after P-pick it's constant at source_magnitude)
-            y_scalar = y_temporal.max(dim=1)[0]  # (batch,) - true scalar target from metadata
+            y_scalar = y_temporal.max(dim=1)[0]  # (batch,) - matches training methodology
 
             # Forward pass
             x_preproc = model.annotate_batch_pre(x, {})
@@ -180,7 +180,8 @@ def evaluate_umamba_mag_v3(
     pred_final = np.concatenate(scalar_predictions)  # (n_waveforms,)
     target_final = np.concatenate(scalar_targets)    # (n_waveforms,)
 
-    # Compute metrics on SCALAR predictions only
+    # Compute metrics on SCALAR predictions only (CORRECT METHODOLOGY)
+    # This is 1 prediction per waveform, which is the fair comparison
     mse = mean_squared_error(target_final, pred_final)
     rmse = np.sqrt(mse)
     mae = mean_absolute_error(target_final, pred_final)
@@ -203,6 +204,22 @@ def evaluate_umamba_mag_v3(
         print(f"Average inference time: {avg_inference_time:.4f}s per batch")
         print(f"Total inference time: {total_inference_time:.2f}s")
     print("=" * 60)
+    
+    # IMPORTANT: Explain the difference in evaluation methodology
+    print("\n" + "!" * 60)
+    print("METHODOLOGY NOTE:")
+    print("!" * 60)
+    print("UMamba V3 uses .max() to extract scalar target from temporal array.")
+    print("This is CORRECT as magnitude is constant after P-arrival.")
+    print("")
+    print("WARNING: UMamba V2 uses .mean() for targets in BOTH training & eval,")
+    print("which artificially lowers the target by averaging with pre-P zeros.")
+    print("This makes V2 metrics NOT directly comparable to V3:")
+    print("  - V2's lower MSE/RMSE/MAE are due to lower (incorrect) targets")
+    print("  - V2's lower R² is due to predictions not matching lowered targets")
+    print("")
+    print("For accurate comparison, V2 should be retrained/re-evaluated with .max()")
+    print("!" * 60)
 
     results = {
         'mse': mse,
@@ -248,14 +265,33 @@ def evaluate_umamba_mag_v3(
             temporal_targ_all.flatten(), 
             temporal_pred_all.flatten()
         )
+        temporal_rmse = np.sqrt(temporal_mse)
+        temporal_r2 = r2_score(
+            temporal_targ_all.flatten(),
+            temporal_pred_all.flatten()
+        )
         
         results['temporal_mse'] = temporal_mse
+        results['temporal_rmse'] = temporal_rmse
         results['temporal_mae'] = temporal_mae
+        results['temporal_r2'] = temporal_r2
         
-        print("\nTEMPORAL HEAD ANALYSIS (auxiliary task - not used for evaluation):")
-        print(f"Temporal MSE (flattened): {temporal_mse:.4f}")
-        print(f"Temporal MAE (flattened): {temporal_mae:.4f}")
-        print("NOTE: These are computed on per-sample predictions and are for analysis only")
+        print("\nTEMPORAL HEAD ANALYSIS (auxiliary task):")
+        print("=" * 60)
+        print("NOTE: Computed on per-timestep predictions (flattened)")
+        print(f"Total predictions: {len(temporal_targ_all.flatten())} "
+              f"({len(pred_final)} waveforms × {temporal_targ_all.shape[1]} timesteps)")
+        print(f"Temporal MSE: {temporal_mse:.4f}")
+        print(f"Temporal RMSE: {temporal_rmse:.4f}")
+        print(f"Temporal MAE: {temporal_mae:.4f}")
+        print(f"Temporal R²: {temporal_r2:.4f}")
+        print("")
+        print("⚠️  WARNING: Temporal R² is artificially high due to:")
+        print("   1. Magnitude is constant after P-arrival (high correlation)")
+        print("   2. Many more predictions (timesteps) than waveforms")
+        print("   This is NOT a fair comparison metric!")
+        print("")
+        print("✓  For fair comparison, use SCALAR metrics above (1 per waveform)")
         print("=" * 60)
 
     # Create plots

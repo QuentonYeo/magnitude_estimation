@@ -15,10 +15,16 @@ from my_project.tutorial.tutorial import train_phasenet, evaluate_phase_model
 from my_project.models.phasenetLSTM.train import train_phasenet_lstm_model
 from my_project.models.phasenet_mag.train import train_phasenet_mag
 from my_project.models.phasenet_mag.evaluate import evaluate_phasenet_mag
+from my_project.models.phasenet_mag_v2.train import train_phasenet_mag as train_phasenet_mag_v2
+from my_project.models.phasenet_mag_v2.evaluate import evaluate_phasenet_mag_v2
 from my_project.models.AMAG_v2.train import train_magnitude_net
 from my_project.models.AMAG_v2.evaluate import evaluate_magnitude_net
+from my_project.models.AMAG_v3.train import train_magnitude_net as train_magnitude_net_v3
+from my_project.models.AMAG_v3.evaluate import evaluate_magnitude_net as evaluate_magnitude_net_v3
 from my_project.models.EQTransformer.train import train_eqtransformer_mag
 from my_project.models.EQTransformer.evaluate import evaluate_eqtransformer_mag
+from my_project.models.EQTransformer_v2.train import train_eqtransformer_mag as train_eqtransformer_mag_v2
+from my_project.models.EQTransformer_v2.evaluate import evaluate_eqtransformer_mag as evaluate_eqtransformer_mag_v2
 from my_project.models.ViT.train import train_vit_magnitude
 from my_project.models.ViT.evaluate import evaluate_vit_magnitude
 from my_project.models.UMamba_mag.train import train_umamba_mag
@@ -27,18 +33,24 @@ from my_project.models.UMamba_mag_v2.train import train_umamba_mag_v2
 from my_project.models.UMamba_mag_v2.evaluate import evaluate_umamba_mag_v2
 from my_project.models.UMamba_mag_v3.train import train_umamba_mag_v3
 from my_project.models.UMamba_mag_v3.evaluate import evaluate_umamba_mag_v3
+from my_project.models.MagNet.train import train_magnet
+from my_project.models.MagNet.evaluate import evaluate_magnet
 
 # Import model classes for type checking
 from my_project.models.phasenet_mag.model import PhaseNetMag
+from my_project.models.phasenet_mag_v2.model import PhaseNetMagv2
 from my_project.models.AMAG_v2.model import MagnitudeNet
+from my_project.models.AMAG_v3.model import MagnitudeNet as MagnitudeNetV3
 from my_project.models.UMamba_mag.model import UMambaMag
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.EQTransformer.model import EQTransformerMag
+from my_project.models.EQTransformer_v2.model import EQTransformerMagV2
 from my_project.models.ViT.model import ViTMagnitudeEstimator
 from my_project.models.UMamba_mag.model import UMambaMag
 from my_project.models.UMamba_mag_v2.model import UMambaMag as UMambaMagV2
 from my_project.models.UMamba_mag_v3.model import UMambaMag as UMambaMagV3
+from my_project.models.MagNet.model import MagNet
 import seisbench.models as sbm
 
 
@@ -167,7 +179,7 @@ def evaluate_phase_model_unified(
 
 
 def train_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3],
+    model: Union[PhaseNetMag, PhaseNetMagv2, MagnitudeNet, MagnitudeNetV3, EQTransformerMag, EQTransformerMagV2, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3, MagNet],
     model_name: str,
     data: BenchmarkDataset,
     epochs: int = 50,
@@ -182,10 +194,10 @@ def train_magnitude_model(
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Unified training function for magnitude-based models (PhaseNetMag, AMAG_v2, EQTransformerMag, ViT, UMamba, UMamba V2, UMamba V3).
+    Unified training function for magnitude-based models (PhaseNetMag, PhaseNetMagv2, AMAG_v2, AMAG_v3, EQTransformerMag, EQTransformerMagV2, ViT, UMamba, UMamba V2, UMamba V3, MagNet).
 
     Args:
-        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3)
+        model: Magnitude model instance (PhaseNetMag, PhaseNetMagv2, MagnitudeNet, MagnitudeNetV3, EQTransformerMag, EQTransformerMagV2, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3, MagNet)
         model_name: Name for saving model checkpoints
         data: Dataset to train on
         epochs: Number of training epochs
@@ -233,6 +245,29 @@ def train_magnitude_model(
         )
         return {"model_type": "phasenet_mag", "results": results}
 
+    elif isinstance(model, PhaseNetMagv2):
+        print(f"Training PhaseNetMag V2 model (scalar output)")
+
+        early_stopping_patience = kwargs.get("early_stopping_patience", 10)
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
+
+        results = train_phasenet_mag_v2(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            save_every=save_every,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+            quiet=quiet,
+        )
+        return {"model_type": "phasenet_mag_v2", "results": results}
+
     elif isinstance(model, MagnitudeNet):
         print(f"Training MagnitudeNet (AMAG_v2) model")
 
@@ -258,6 +293,34 @@ def train_magnitude_model(
             quiet=quiet,
         )
         return {"model_type": "magnitude_net", "results": results}
+
+    elif isinstance(model, MagnitudeNetV3):
+        print(f"Training MagnitudeNet V3 (AMAG_v3) model - scalar output with max loss")
+
+        # Extract AMAG V3-specific parameters from kwargs (same as V2 but with UMamba V3-style training)
+        scheduler_factor = kwargs.get("scheduler_factor", 0.5)
+        gradient_clip = kwargs.get("gradient_clip", 1.0)
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 15)
+
+        results = train_magnitude_net_v3(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            scheduler_factor=scheduler_factor,
+            save_every=save_every,
+            gradient_clip=gradient_clip,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+            quiet=quiet,
+        )
+        return {"model_type": "magnitude_net_v3", "results": results}
 
     elif isinstance(model, EQTransformerMag):
         print(f"Training EQTransformerMag model")
@@ -287,13 +350,45 @@ def train_magnitude_model(
         )
         return {"model_type": "eqtransformer_mag", "results": results}
 
+    elif isinstance(model, EQTransformerMagV2):
+        print(f"Training EQTransformerMag V2 model (scalar head)")
+
+        # Extract EQTransformerMag V2-specific parameters from kwargs
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
+        scheduler_factor = kwargs.get("scheduler_factor", 0.5)
+        gradient_clip = kwargs.get("gradient_clip", 1.0)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 15)
+        checkpoint_path = kwargs.get("checkpoint_path", None)
+
+        results = train_eqtransformer_mag_v2(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            scheduler_factor=scheduler_factor,
+            save_every=save_every,
+            gradient_clip=gradient_clip,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+            quiet=quiet,
+            checkpoint_path=checkpoint_path,
+        )
+        return {"model_type": "eqtransformer_mag_v2", "results": results}
+
     elif isinstance(model, ViTMagnitudeEstimator):
         print(f"Training ViT Magnitude Estimator model")
 
         # Extract ViT-specific parameters from kwargs
+        # Updated defaults to match UMamba v3 methodology
         gradient_clip = kwargs.get("gradient_clip", 1.0)
-        early_stopping_patience = kwargs.get("early_stopping_patience", 20)
-        warmup_epochs = kwargs.get("warmup_epochs", 10)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 15)  # Increased from 20 to match UMamba v3
+        warmup_epochs = kwargs.get("warmup_epochs", 5)  # Reduced from 10 to match UMamba v3
+        scheduler_patience = kwargs.get("scheduler_patience", 5)  # Match UMamba v3 scheduler patience
         scheduler_factor = kwargs.get("scheduler_factor", 0.5)
 
         # Note: learning_rate, batch_size, and weight_decay are already set correctly
@@ -427,12 +522,46 @@ def train_magnitude_model(
         )
         return {"model_type": "umamba_mag_v3", "results": results}
 
+    elif isinstance(model, MagNet):
+        print(f"Training MagNet BiLSTM model (scalar magnitude prediction)")
+
+        # Extract MagNet-specific parameters from kwargs
+        gradient_clip = kwargs.get("gradient_clip", 1.0)
+        early_stopping_patience = kwargs.get("early_stopping_patience", 15)
+        warmup_epochs = kwargs.get("warmup_epochs", 5)
+        scheduler_factor = kwargs.get("scheduler_factor", 0.5)
+
+        # Adjust defaults for MagNet if not explicitly provided
+        if learning_rate == 1e-3:  # Default learning rate, keep for MagNet
+            learning_rate = 1e-3
+        if batch_size == 256:  # Default batch size, adjust for MagNet
+            batch_size = 64  # Smaller batch size (same as UMamba v3)
+
+        results = train_magnet(
+            model_name=model_name,
+            model=model,
+            data=data,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=batch_size,
+            optimizer_name=optimizer_name,
+            weight_decay=weight_decay,
+            scheduler_patience=scheduler_patience,
+            scheduler_factor=scheduler_factor,
+            save_every=save_every,
+            gradient_clip=gradient_clip,
+            early_stopping_patience=early_stopping_patience,
+            warmup_epochs=warmup_epochs,
+            quiet=quiet,
+        )
+        return {"model_type": "magnet", "results": results}
+
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")
 
 
 def evaluate_magnitude_model(
-    model: Union[PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3],
+    model: Union[PhaseNetMag, PhaseNetMagv2, MagnitudeNet, MagnitudeNetV3, EQTransformerMag, EQTransformerMagV2, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3, MagNet],
     model_path: str,
     data: BenchmarkDataset,
     batch_size: int = 256,
@@ -444,7 +573,7 @@ def evaluate_magnitude_model(
     Unified evaluation function for magnitude-based models.
 
     Args:
-        model: Magnitude model instance (PhaseNetMag, MagnitudeNet, EQTransformerMag, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3)
+        model: Magnitude model instance (PhaseNetMag, PhaseNetMagv2, MagnitudeNet, MagnitudeNetV3, EQTransformerMag, EQTransformerMagV2, ViTMagnitudeEstimator, UMambaMag, UMambaMagV2, UMambaMagV3, MagNet)
         model_path: Path to trained model weights
         data: Dataset to evaluate on
         batch_size: Batch size for evaluation
@@ -477,6 +606,19 @@ def evaluate_magnitude_model(
         )
         return {"model_type": "phasenet_mag", "results": results}
 
+    elif isinstance(model, PhaseNetMagv2):
+        print(f"Evaluating PhaseNetMag V2 model (scalar output)")
+
+        results = evaluate_phasenet_mag_v2(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "phasenet_mag_v2", "results": results}
+
     elif isinstance(model, MagnitudeNet):
         print(f"Evaluating MagnitudeNet (AMAG_v2) model")
 
@@ -490,6 +632,20 @@ def evaluate_magnitude_model(
         )
         return {"model_type": "magnitude_net", "results": results}
 
+    elif isinstance(model, MagnitudeNetV3):
+        print(f"Evaluating MagnitudeNet V3 (AMAG_v3) model")
+
+        # Use V3-specific evaluation (scalar output)
+        results = evaluate_magnitude_net_v3(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "magnitude_net_v3", "results": results}
+
     elif isinstance(model, EQTransformerMag):
         print(f"Evaluating EQTransformerMag model")
 
@@ -502,6 +658,19 @@ def evaluate_magnitude_model(
             num_examples=num_examples,
         )
         return {"model_type": "eqtransformer_mag", "results": results}
+
+    elif isinstance(model, EQTransformerMagV2):
+        print(f"Evaluating EQTransformerMag V2 model (scalar head)")
+
+        results = evaluate_eqtransformer_mag_v2(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "eqtransformer_mag_v2", "results": results}
 
     elif isinstance(model, ViTMagnitudeEstimator):
         print(f"Evaluating ViT Magnitude Estimator model")
@@ -572,6 +741,23 @@ def evaluate_magnitude_model(
             save_uncertainty=True,  # Save uncertainty if available
         )
         return {"model_type": "umamba_mag_v3", "results": results}
+
+    elif isinstance(model, MagNet):
+        print(f"Evaluating MagNet BiLSTM model")
+
+        # Adjust batch size for MagNet if using default
+        if batch_size == 256:
+            batch_size = 64
+
+        results = evaluate_magnet(
+            model=model,
+            model_path=model_path,
+            data=data,
+            batch_size=batch_size,
+            plot_examples=plot_examples,
+            num_examples=num_examples,
+        )
+        return {"model_type": "magnet", "results": results}
 
     else:
         raise ValueError(f"Unsupported magnitude model type: {type(model)}")

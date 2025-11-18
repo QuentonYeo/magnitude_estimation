@@ -13,14 +13,18 @@ from my_project.tutorial.tutorial import (
 
 # Import model classes
 from my_project.models.phasenet_mag.model import PhaseNetMag
+from my_project.models.phasenet_mag_v2.model import PhaseNetMagv2
 from my_project.models.phasenetLSTM.model import PhaseNetLSTM
 from my_project.models.phasenetLSTM.modelv2 import PhaseNetConvLSTM
 from my_project.models.AMAG_v2.model import MagnitudeNet
+from my_project.models.AMAG_v3.model import MagnitudeNet as MagnitudeNetV3
 from my_project.models.EQTransformer.model import EQTransformerMag
+from my_project.models.EQTransformer_v2.model import EQTransformerMagV2
 from my_project.models.ViT.model import ViTMagnitudeEstimator
 from my_project.models.UMamba_mag.model import UMambaMag
 from my_project.models.UMamba_mag_v2.model import UMambaMag as UMambaMagV2
 from my_project.models.UMamba_mag_v3.model import UMambaMag as UMambaMagV3
+from my_project.models.MagNet.model import MagNet
 
 # Import unified training and inference functions
 from my_project.utils.unified_training import (
@@ -44,7 +48,7 @@ def extract_model_params(args, model_type):
         params["early_stopping_patience"] = args.early_stopping_patience
 
     # Universal training parameters for magnitude models
-    if model_type in ["phasenet_mag", "amag_v2", "eqtransformer_mag", "vit_mag", "umamba_mag", "umamba_mag_v2", "umamba_mag_v3"]:
+    if model_type in ["phasenet_mag", "phasenet_mag_v2", "amag_v2", "amag_v3", "eqtransformer_mag", "eqtransformer_mag_v2", "vit_mag", "umamba_mag", "umamba_mag_v2", "umamba_mag_v3", "magnet"]:
         if hasattr(args, "learning_rate") and args.learning_rate is not None:
             params["learning_rate"] = args.learning_rate
         if hasattr(args, "batch_size") and args.batch_size is not None:
@@ -68,9 +72,23 @@ def extract_model_params(args, model_type):
     elif model_type == "phasenet_mag":
         if hasattr(args, "norm") and args.norm != "std":
             params["norm"] = args.norm
+    
+    # PhaseNetMag V2 specific parameters (scalar output)
+    elif model_type == "phasenet_mag_v2":
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
 
     # MagnitudeNet specific parameters
     elif model_type == "amag_v2":
+        if hasattr(args, "lstm_hidden") and args.lstm_hidden != 128:
+            params["lstm_hidden"] = args.lstm_hidden
+        if hasattr(args, "lstm_layers") and args.lstm_layers != 2:
+            params["lstm_layers"] = args.lstm_layers
+        if hasattr(args, "dropout") and args.dropout != 0.2:
+            params["dropout"] = args.dropout
+
+    # MagnitudeNet V3 specific parameters (AMAG V3)
+    elif model_type == "amag_v3":
         if hasattr(args, "lstm_hidden") and args.lstm_hidden != 128:
             params["lstm_hidden"] = args.lstm_hidden
         if hasattr(args, "lstm_layers") and args.lstm_layers != 2:
@@ -87,6 +105,18 @@ def extract_model_params(args, model_type):
         if hasattr(args, "norm") and args.norm != "std":
             params["norm"] = args.norm
         # EQTransformerMag-specific training parameters
+        if hasattr(args, "warmup_epochs") and args.warmup_epochs != 5:
+            params["warmup_epochs"] = args.warmup_epochs
+
+    # EQTransformerMag V2 specific parameters (scalar head)
+    elif model_type == "eqtransformer_mag_v2":
+        if hasattr(args, "lstm_blocks") and args.lstm_blocks != 3:
+            params["lstm_blocks"] = args.lstm_blocks
+        if hasattr(args, "drop_rate") and args.drop_rate != 0.1:
+            params["drop_rate"] = args.drop_rate
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
+        # EQTransformerMag V2-specific training parameters
         if hasattr(args, "warmup_epochs") and args.warmup_epochs != 5:
             params["warmup_epochs"] = args.warmup_epochs
 
@@ -212,6 +242,15 @@ def extract_model_params(args, model_type):
         if hasattr(args, "use_uncertainty"):
             params["use_uncertainty"] = args.use_uncertainty
 
+    # MagNet specific parameters
+    elif model_type == "magnet":
+        if hasattr(args, "lstm_hidden") and args.lstm_hidden != 100:
+            params["lstm_hidden"] = args.lstm_hidden
+        if hasattr(args, "dropout") and args.dropout != 0.2:
+            params["dropout"] = args.dropout
+        if hasattr(args, "norm") and args.norm != "std":
+            params["norm"] = args.norm
+
     return params
 
 
@@ -262,6 +301,19 @@ def create_magnitude_model(model_type: str, **kwargs):
             norm=norm,
             filter_factor=filter_factor,
         )
+    elif model_type == "phasenet_mag_v2":
+        # Extract PhaseNetMag V2-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return PhaseNetMagv2(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            norm=norm,
+            filter_factor=filter_factor,
+        )
     elif model_type == "amag_v2":
         # Extract MagnitudeNet-specific parameters with defaults
         filter_factor = kwargs.get("filter_factor", 1)
@@ -270,6 +322,21 @@ def create_magnitude_model(model_type: str, **kwargs):
         dropout = kwargs.get("dropout", 0.2)
 
         return MagnitudeNet(
+            in_channels=3,
+            sampling_rate=100,
+            filter_factor=filter_factor,
+            lstm_hidden=lstm_hidden,
+            lstm_layers=lstm_layers,
+            dropout=dropout,
+        )
+    elif model_type == "amag_v3":
+        # Extract MagnitudeNet V3-specific parameters with defaults
+        filter_factor = kwargs.get("filter_factor", 1)
+        lstm_hidden = kwargs.get("lstm_hidden", 128)
+        lstm_layers = kwargs.get("lstm_layers", 2)
+        dropout = kwargs.get("dropout", 0.2)
+
+        return MagnitudeNetV3(
             in_channels=3,
             sampling_rate=100,
             filter_factor=filter_factor,
@@ -293,6 +360,22 @@ def create_magnitude_model(model_type: str, **kwargs):
             drop_rate=drop_rate,
             norm=norm,
         )
+    elif model_type == "eqtransformer_mag_v2":
+        # Extract EQTransformerMag V2-specific parameters with defaults
+        lstm_blocks = kwargs.get("lstm_blocks", 3)
+        drop_rate = kwargs.get("drop_rate", 0.1)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return EQTransformerMagV2(
+            in_channels=in_channels,
+            in_samples=3001,  # 30 seconds at 100Hz
+            sampling_rate=sampling_rate,
+            lstm_blocks=lstm_blocks,
+            drop_rate=drop_rate,
+            norm=norm,
+        )
     elif model_type == "vit_mag":
         # Extract ViT-specific parameters with defaults
         conv_channels = kwargs.get("conv_channels", [64, 32, 32, 32])
@@ -301,7 +384,8 @@ def create_magnitude_model(model_type: str, **kwargs):
         embed_dim = kwargs.get("embed_dim", 100)
         num_transformer_blocks = kwargs.get("num_transformer_blocks", 4)
         num_heads = kwargs.get("num_heads", 4)
-        transformer_mlp_dim = kwargs.get("transformer_mlp_dim", 200)
+        transformer_mlp_dim1 = kwargs.get("transformer_mlp_dim1", 200)
+        transformer_mlp_dim2 = kwargs.get("transformer_mlp_dim2", 100)
         final_mlp_dims = kwargs.get("final_mlp_dims", [1000, 500])
         dropout = kwargs.get("dropout", 0.1)
         final_dropout = kwargs.get("final_dropout", 0.5)
@@ -318,7 +402,8 @@ def create_magnitude_model(model_type: str, **kwargs):
             embed_dim=embed_dim,
             num_transformer_blocks=num_transformer_blocks,
             num_heads=num_heads,
-            transformer_mlp_dim=transformer_mlp_dim,
+            transformer_mlp_dim1=transformer_mlp_dim1,
+            transformer_mlp_dim2=transformer_mlp_dim2,
             final_mlp_dims=final_mlp_dims,
             dropout=dropout,
             final_dropout=final_dropout,
@@ -416,6 +501,21 @@ def create_magnitude_model(model_type: str, **kwargs):
             temporal_weight=temporal_weight,
             use_uncertainty=use_uncertainty,
         )
+    elif model_type == "magnet":
+        # Extract MagNet-specific parameters with defaults
+        lstm_hidden = kwargs.get("lstm_hidden", 100)
+        dropout = kwargs.get("dropout", 0.2)
+        norm = kwargs.get("norm", "std")
+        in_channels = kwargs.get("in_channels", 3)
+        sampling_rate = kwargs.get("sampling_rate", 100)
+
+        return MagNet(
+            in_channels=in_channels,
+            sampling_rate=sampling_rate,
+            norm=norm,
+            lstm_hidden=lstm_hidden,
+            dropout=dropout,
+        )
     else:
         raise ValueError(f"Unknown magnitude model type: {model_type}")
 
@@ -438,10 +538,16 @@ def get_model_name(model_type: str, data_name: str, **kwargs):
         return f"PhaseNetConvLSTM_{data_name}_f{filter_factor}_h{lstm_hidden_size or 'auto'}_l{lstm_num_layers}_{'bi' if lstm_bidirectional else 'uni'}"
     elif model_type == "phasenet_mag":
         return f"PhaseNetMag_{data_name}"
+    elif model_type == "phasenet_mag_v2":
+        return f"PhaseNetMagv2_{data_name}"
     elif model_type == "amag_v2":
         return f"magnitudenet_v1"
+    elif model_type == "amag_v3":
+        return f"AMAG_v3_{data_name}"
     elif model_type == "eqtransformer_mag":
         return f"EQTransformerMag_{data_name}"
+    elif model_type == "eqtransformer_mag_v2":
+        return f"EQTransformerMagV2_{data_name}"
     elif model_type == "vit_mag":
         return f"ViTMag_{data_name}"
     elif model_type == "umamba_mag":
@@ -450,6 +556,8 @@ def get_model_name(model_type: str, data_name: str, **kwargs):
         return f"UMambaMag_v2_{data_name}"
     elif model_type == "umamba_mag_v3":
         return f"UMambaMag_v3_{data_name}"
+    elif model_type == "magnet":
+        return f"MagNet_{data_name}"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -494,6 +602,10 @@ def train_magnitude_unified(
         learning_rate = kwargs.pop("learning_rate", 1e-4)
         batch_size = kwargs.pop("batch_size", 256)
         optimizer_name = kwargs.get("optimizer_name", "Adam")
+    elif model_type == "phasenet_mag_v2":
+        learning_rate = kwargs.pop("learning_rate", 1e-4)
+        batch_size = kwargs.pop("batch_size", 256)
+        optimizer_name = kwargs.get("optimizer_name", "Adam")
     elif model_type == "eqtransformer_mag":
         learning_rate = kwargs.pop("learning_rate", 1e-4)  # Lower LR for transformers
         batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
@@ -501,20 +613,53 @@ def train_magnitude_unified(
         kwargs.setdefault("scheduler_factor", 0.5)
         kwargs.setdefault("gradient_clip", 1.0)
         kwargs.setdefault("warmup_epochs", 5)  # Transformer warmup
-    elif model_type == "vit_mag":
-        learning_rate = kwargs.pop("learning_rate", 1e-4)  # Lower LR for transformers
-        batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
+    elif model_type == "eqtransformer_mag_v2":
+        learning_rate = kwargs.pop("learning_rate", 1e-4)  # Conservative for transformer stability
+        batch_size = kwargs.pop("batch_size", 64)  # Match UMamba V3
         optimizer_name = kwargs.get("optimizer_name", "AdamW")
-        kwargs.setdefault("weight_decay", 1e-2)  # Higher weight decay for transformers
         kwargs.setdefault("scheduler_factor", 0.5)
         kwargs.setdefault("gradient_clip", 1.0)
-        kwargs.setdefault("warmup_epochs", 5)  # Transformer warmup
-    else:  # amag_v2
+        kwargs.setdefault("warmup_epochs", 5)
+        kwargs.setdefault("early_stopping_patience", 15)
+    elif model_type == "vit_mag":
+        # UPDATED: Paper specifications with stability improvements
+        # - Reduced patience from 10 to 5 epochs for faster response to instability
+        # - Factor changed from √0.1 (0.316) to 0.5 for less aggressive reduction
+        # - Added threshold to avoid noise-triggered reductions
+        learning_rate = kwargs.pop("learning_rate", 1e-3)  # Paper: 0.001
+        batch_size = kwargs.pop("batch_size", 64)  # Smaller batch for memory efficiency
+        optimizer_name = kwargs.get("optimizer_name", "Adam")  # Paper uses Adam
+        kwargs.setdefault("weight_decay", 0.0)  # Not specified in paper
+        kwargs.setdefault("scheduler_factor", 0.5)  # UPDATED: was √0.1 ≈ 0.316
+        kwargs.setdefault("scheduler_patience", 5)  # UPDATED: was 10 epochs
+        kwargs.setdefault("scheduler_threshold", 1e-4)  # NEW: ignore small fluctuations
+        kwargs.setdefault("gradient_clip", 1.0)
+        kwargs.setdefault("warmup_epochs", 0)  # Not mentioned in paper
+        kwargs.setdefault("early_stopping_patience", 25)  # Paper: 25 epochs
+    elif model_type in ["umamba_mag", "umamba_mag_v2", "umamba_mag_v3"]:
+        learning_rate = kwargs.pop("learning_rate", 1e-3)
+        batch_size = kwargs.pop("batch_size", 64)
+        optimizer_name = kwargs.get("optimizer_name", "AdamW")
+        kwargs.setdefault("scheduler_factor", 0.5)
+        kwargs.setdefault("gradient_clip", 1.0)
+        kwargs.setdefault("early_stopping_patience", 15)
+        kwargs.setdefault("warmup_epochs", 5)
+    elif model_type == "magnet":
+        # MagNet defaults (same as UMamba v3 methodology)
+        learning_rate = kwargs.pop("learning_rate", 1e-3)
+        batch_size = kwargs.pop("batch_size", 64)
+        optimizer_name = kwargs.get("optimizer_name", "AdamW")
+        kwargs.setdefault("scheduler_factor", 0.5)
+        kwargs.setdefault("gradient_clip", 1.0)
+        kwargs.setdefault("early_stopping_patience", 15)
+        kwargs.setdefault("warmup_epochs", 5)
+    else:
+        # Default values for other magnitude models
         learning_rate = kwargs.pop("learning_rate", 1e-3)
         batch_size = kwargs.pop("batch_size", 256)
-        optimizer_name = kwargs.get("optimizer_name", "AdamW")
-        kwargs.setdefault("scheduler_factor", 0.5)
+        optimizer_name = kwargs.get("optimizer_name", "Adam")
         kwargs.setdefault("gradient_clip", 1.0)
+        kwargs.setdefault("warmup_epochs", 5)
 
     return train_magnitude_model(
         model=model,
@@ -670,12 +815,16 @@ if __name__ == "__main__":
             "phasenet_lstm",
             "phasenet_conv_lstm",
             "phasenet_mag",
+            "phasenet_mag_v2",
             "amag_v2",
+            "amag_v3",
             "eqtransformer_mag",
+            "eqtransformer_mag_v2",
             "vit_mag",
             "umamba_mag",
             "umamba_mag_v2",
             "umamba_mag_v3",
+            "magnet",
         ],
         help="Model type to use",
     )
@@ -901,6 +1050,12 @@ if __name__ == "__main__":
     )
     parser.add_argument('--quiet', action='store_true', 
                     help='Disable tqdm progress bars for cleaner logs')
+    parser.add_argument(
+        "--resume_checkpoint",
+        type=str,
+        default=None,
+        help="Path to checkpoint file (.pt) to resume training from. Only supported for EQTransformerMagV2. The model will continue training from the checkpoint's epoch and save to the same directory.",
+    )
 
     args = parser.parse_args()
 
@@ -962,16 +1117,29 @@ if __name__ == "__main__":
             )
             exit(1)
     elif args.mode == "train_mag":
+        # Validate resume_checkpoint usage
+        if args.resume_checkpoint and args.model_type != "eqtransformer_mag_v2":
+            print(f"Error: --resume_checkpoint is currently only supported for eqtransformer_mag_v2")
+            print(f"Requested model type: {args.model_type}")
+            exit(1)
+        
         if args.model_type in [
             "phasenet_mag",
+            "phasenet_mag_v2",
             "amag_v2",
+            "amag_v3",
             "eqtransformer_mag",
+            "eqtransformer_mag_v2",
             "vit_mag",
             "umamba_mag",
             "umamba_mag_v2",
             "umamba_mag_v3",
+            "magnet",
         ]:
             model_params = extract_model_params(args, args.model_type)
+            # Add checkpoint_path to model_params if provided
+            if args.resume_checkpoint:
+                model_params["checkpoint_path"] = args.resume_checkpoint
             train_magnitude_unified(
                 data, args.model_type, epochs=args.epochs, device=args.cuda, quiet=args.quiet, **model_params
             )
@@ -1002,12 +1170,16 @@ if __name__ == "__main__":
             exit(1)
         if args.model_type in [
             "phasenet_mag",
+            "phasenet_mag_v2",
             "amag_v2",
+            "amag_v3",
             "eqtransformer_mag",
+            "eqtransformer_mag_v2",
             "vit_mag",
             "umamba_mag",
             "umamba_mag_v2",
             "umamba_mag_v3",
+            "magnet",
         ]:
             model_params = extract_model_params(args, args.model_type)
             # Choose sensible defaults per model type to avoid OOMs

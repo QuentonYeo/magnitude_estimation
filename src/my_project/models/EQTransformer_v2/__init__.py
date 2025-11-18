@@ -1,0 +1,3 @@
+"""
+EQTransformer magnitude prediction models
+"""

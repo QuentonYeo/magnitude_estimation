@@ -25,6 +25,16 @@ def evaluate_umamba_mag(
 ):
     """
     Evaluate UMambaMag model on test set.
+    
+    Evaluation methodology aligned with UMamba v3:
+    - Uses .max() for target magnitude extraction (correct after P-arrival)
+    - Scalar predictions only (single magnitude per waveform)
+
+    Important:
+        The evaluation target uses y_temporal.max(axis=1) instead of .mean()
+        because after the P-pick, the magnitude is constant at the source_magnitude
+        value. Using .mean() incorrectly averages with pre-P zeros, artificially
+        lowering the target and causing poor evaluation metrics.
 
     Args:
         model: UMambaMag model instance
@@ -128,10 +138,12 @@ def evaluate_umamba_mag(
             pred_magnitudes = y_pred.cpu().numpy()
             true_magnitudes = y_true.cpu().numpy()
             
-            # Handle target shape
+            # CRITICAL: Use .max() instead of .mean() to get true magnitude
+            # After P-pick, magnitude is constant at source_magnitude value
+            # Using .mean() incorrectly averages with pre-P zeros, lowering the target
             if true_magnitudes.ndim > 1:
-                # If shape is (batch, samples), take mean
-                true_magnitudes = true_magnitudes.mean(axis=1)
+                # If shape is (batch, samples), take max to get true magnitude
+                true_magnitudes = true_magnitudes.max(axis=1)
 
             all_predictions.append(pred_magnitudes)
             all_targets.append(true_magnitudes)
