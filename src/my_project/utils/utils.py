@@ -59,15 +59,17 @@ def dump_metadata_to_csv(sbd: BenchmarkDataset, filename="metadata.csv"):
 def plot_magnitude_distribution(data: BenchmarkDataset) -> None:
     magnitudes = data.metadata["source_magnitude"]
 
-    # Plot histogram: frequency vs magnitude bins (0-9, step 0.5)
-    bins = [x * 0.5 for x in range(19)]  # 0, 0.5, ..., 10
-    plt.figure()
-    plt.hist(magnitudes, bins=bins, edgecolor="black")
-    plt.xlabel("Magnitude")
-    plt.ylabel("Frequency")
+    # Plot histogram: frequency vs magnitude bins (-1 to 8, 26 bins total)
+    bins = np.linspace(-1, 8, 27)  # 27 edges = 26 bins
+    plt.figure(figsize=(10, 6))
+    plt.hist(magnitudes, bins=bins, edgecolor='black', alpha=0.7, color='steelblue')
+    plt.xlabel("Magnitude", fontsize=12)
+    plt.ylabel("Frequency", fontsize=12)
     plt.yscale("log")
     # plt.title("Magnitude Distribution in DummyDataset")
-    plt.xticks(range(0, 10))  # Show only whole numbers 0-9
+    plt.xticks(range(-1, 9))  # Show whole numbers from -1 to 8
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
     plt.show()
 
 
@@ -155,50 +157,50 @@ def plot_training_history(history_path: str, show_plot: bool = False, detailed_m
         epochs = range(1, len(train_losses) + 1)
         
         # Plot 1: Total Loss
-        ax1.plot(epochs, train_losses, "b-", label="Training Loss", linewidth=2)
-        ax1.plot(epochs, val_losses, "r-", label="Validation Loss", linewidth=2)
-        ax1.axhline(y=best_val_loss, color="g", linestyle="--", 
+        ax1.plot(epochs, train_losses, color='steelblue', label="Training Loss", linewidth=2)
+        ax1.plot(epochs, val_losses, color='coral', label="Validation Loss", linewidth=2)
+        ax1.axhline(y=best_val_loss, color="red", linestyle="--", linewidth=1.5, alpha=0.5,
                    label=f"Best Val: {best_val_loss:.4f}")
-        ax1.set_xlabel("Epoch")
-        ax1.set_ylabel("Total Loss")
+        ax1.set_xlabel("Epoch", fontsize=12)
+        ax1.set_ylabel("Total Loss", fontsize=12)
         ax1.set_title("Combined Loss (Scalar + Temporal)")
-        ax1.legend()
+        ax1.legend(fontsize=10)
         ax1.grid(True, alpha=0.3)
         
         # Plot 2: Scalar Loss
-        ax2.plot(epochs, train_loss_scalar, "b-", label="Train Scalar", linewidth=2)
-        ax2.plot(epochs, val_loss_scalar, "r-", label="Val Scalar", linewidth=2)
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Scalar Loss (MSE)")
+        ax2.plot(epochs, train_loss_scalar, color='steelblue', label="Train Scalar", linewidth=2)
+        ax2.plot(epochs, val_loss_scalar, color='coral', label="Val Scalar", linewidth=2)
+        ax2.set_xlabel("Epoch", fontsize=12)
+        ax2.set_ylabel("Scalar Loss (MSE)", fontsize=12)
         ax2.set_title("Scalar Head Loss (Global Magnitude)")
-        ax2.legend()
+        ax2.legend(fontsize=10)
         ax2.grid(True, alpha=0.3)
         
         # Plot 3: Temporal Loss
-        ax3.plot(epochs, train_loss_temporal, "b-", label="Train Temporal", linewidth=2)
-        ax3.plot(epochs, val_loss_temporal, "r-", label="Val Temporal", linewidth=2)
-        ax3.set_xlabel("Epoch")
-        ax3.set_ylabel("Temporal Loss (MSE)")
+        ax3.plot(epochs, train_loss_temporal, color='steelblue', label="Train Temporal", linewidth=2)
+        ax3.plot(epochs, val_loss_temporal, color='coral', label="Val Temporal", linewidth=2)
+        ax3.set_xlabel("Epoch", fontsize=12)
+        ax3.set_ylabel("Temporal Loss (MSE)", fontsize=12)
         ax3.set_title("Temporal Head Loss (Per-timestep)")
-        ax3.legend()
+        ax3.legend(fontsize=10)
         ax3.grid(True, alpha=0.3)
         
         # Plot 4: RMSE Comparison
         train_rmse_scalar = np.sqrt(train_loss_scalar)
         val_rmse_scalar = np.sqrt(val_loss_scalar)
-        ax4.plot(epochs, train_rmse_scalar, "b-", label="Train RMSE", linewidth=2)
-        ax4.plot(epochs, val_rmse_scalar, "r-", label="Val RMSE", linewidth=2)
-        ax4.set_xlabel("Epoch")
-        ax4.set_ylabel("RMSE (Magnitude Units)")
+        ax4.plot(epochs, train_rmse_scalar, color='steelblue', label="Train RMSE", linewidth=2)
+        ax4.plot(epochs, val_rmse_scalar, color='coral', label="Val RMSE", linewidth=2)
+        ax4.set_xlabel("Epoch", fontsize=12)
+        ax4.set_ylabel("RMSE (Magnitude Units)", fontsize=12)
         ax4.set_title("Scalar Head RMSE")
-        ax4.legend()
+        ax4.legend(fontsize=10)
         ax4.grid(True, alpha=0.3)
         
         # Plot 5: Learning Rate
         if learning_rates:
-            ax5.plot(epochs, learning_rates, "purple", linewidth=2)
-            ax5.set_xlabel("Epoch")
-            ax5.set_ylabel("Learning Rate")
+            ax5.plot(epochs, learning_rates, color='steelblue', linewidth=2)
+            ax5.set_xlabel("Epoch", fontsize=12)
+            ax5.set_ylabel("Learning Rate", fontsize=12)
             ax5.set_title("Learning Rate Schedule")
             ax5.set_yscale("log")
             ax5.grid(True, alpha=0.3)
@@ -209,22 +211,22 @@ def plot_training_history(history_path: str, show_plot: bool = False, detailed_m
         
         # Plot 6: Uncertainty (if available) or Loss Components
         if has_uncertainty:
-            ax6.plot(epochs, train_uncertainty, "b-", label="Train log(σ²)", linewidth=2)
-            ax6.plot(epochs, val_uncertainty, "r-", label="Val log(σ²)", linewidth=2)
+            ax6.plot(epochs, train_uncertainty, color='steelblue', label="Train log(σ²)", linewidth=2)
+            ax6.plot(epochs, val_uncertainty, color='coral', label="Val log(σ²)", linewidth=2)
             ax6.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
-            ax6.set_xlabel("Epoch")
-            ax6.set_ylabel("Log Variance")
+            ax6.set_xlabel("Epoch", fontsize=12)
+            ax6.set_ylabel("Log Variance", fontsize=12)
             ax6.set_title("Uncertainty Head (Learned Sample Weighting)")
-            ax6.legend()
+            ax6.legend(fontsize=10)
             ax6.grid(True, alpha=0.3)
         else:
             # Show loss components stacked
-            ax6.plot(epochs, train_loss_scalar, "b-", label="Scalar", linewidth=2, alpha=0.7)
-            ax6.plot(epochs, train_loss_temporal, "g-", label="Temporal", linewidth=2, alpha=0.7)
-            ax6.set_xlabel("Epoch")
-            ax6.set_ylabel("Loss Components")
+            ax6.plot(epochs, train_loss_scalar, color='steelblue', label="Scalar", linewidth=2, alpha=0.7)
+            ax6.plot(epochs, train_loss_temporal, color='coral', label="Temporal", linewidth=2, alpha=0.7)
+            ax6.set_xlabel("Epoch", fontsize=12)
+            ax6.set_ylabel("Loss Components", fontsize=12)
             ax6.set_title("Training Loss Breakdown")
-            ax6.legend()
+            ax6.legend(fontsize=10)
             ax6.grid(True, alpha=0.3)
         
     else:
@@ -243,25 +245,25 @@ def plot_training_history(history_path: str, show_plot: bool = False, detailed_m
         epochs = range(1, len(train_losses) + 1)
         
         # Plot 1: Loss curves
-        ax1.plot(epochs, train_losses, "b-", label="Training Loss", linewidth=2)
-        ax1.plot(epochs, val_losses, "r-", label="Validation Loss", linewidth=2)
-        ax1.axhline(y=best_val_loss, color="g", linestyle="--",
+        ax1.plot(epochs, train_losses, color='steelblue', label="Training Loss", linewidth=2)
+        ax1.plot(epochs, val_losses, color='coral', label="Validation Loss", linewidth=2)
+        ax1.axhline(y=best_val_loss, color="red", linestyle="--", linewidth=1.5, alpha=0.5,
                    label=f"Best Val Loss: {best_val_loss:.4f}")
-        ax1.set_xlabel("Epoch")
-        ax1.set_ylabel("Loss (MSE)")
+        ax1.set_xlabel("Epoch", fontsize=12)
+        ax1.set_ylabel("Loss (MSE)", fontsize=12)
         ax1.set_title("Training and Validation Loss")
-        ax1.legend()
+        ax1.legend(fontsize=10)
         ax1.grid(True, alpha=0.3)
         
         # Plot 2: Learning progress (log scale)
-        ax2.semilogy(epochs, train_losses, "b-", label="Training Loss", linewidth=2)
-        ax2.semilogy(epochs, val_losses, "r-", label="Validation Loss", linewidth=2)
-        ax2.axhline(y=best_val_loss, color="g", linestyle="--",
+        ax2.semilogy(epochs, train_losses, color='steelblue', label="Training Loss", linewidth=2)
+        ax2.semilogy(epochs, val_losses, color='coral', label="Validation Loss", linewidth=2)
+        ax2.axhline(y=best_val_loss, color="red", linestyle="--", linewidth=1.5, alpha=0.5,
                    label=f"Best Val Loss: {best_val_loss:.4f}")
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Loss (MSE) - Log Scale")
+        ax2.set_xlabel("Epoch", fontsize=12)
+        ax2.set_ylabel("Loss (MSE) - Log Scale", fontsize=12)
         ax2.set_title("Training Progress (Log Scale)")
-        ax2.legend()
+        ax2.legend(fontsize=10)
         ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -354,6 +356,105 @@ def plot_training_history(history_path: str, show_plot: bool = False, detailed_m
                 print("→ Model uncertainty stable")
 
     return history
+
+
+def plot_distance_depth_distribution(data: BenchmarkDataset, output_dir: str = None) -> tuple:
+    """
+    Plot histograms of source distance and depth distributions as two separate PNG files.
+    
+    Args:
+        data: BenchmarkDataset with source_distance_km and source_depth_km metadata
+        output_dir: Directory to save the plots. If None, saves to current directory.
+    
+    Returns:
+        Tuple of (distance_path, depth_path) - paths to the saved PNG files
+    """
+    # Check for required metadata columns
+    if "source_distance_km" not in data.metadata.columns:
+        raise ValueError(f"Dataset {data.name} does not have 'source_distance_km' metadata column")
+    if "source_depth_km" not in data.metadata.columns:
+        raise ValueError(f"Dataset {data.name} does not have 'source_depth_km' metadata column")
+    
+    # Extract data and remove NaN values
+    distances = data.metadata["source_distance_km"].dropna()
+    depths = data.metadata["source_depth_km"].dropna()
+    
+    dataset_name = data.name
+    
+    # Calculate statistics for distance
+    dist_min = distances.min()
+    dist_max = distances.max()
+    dist_mean = distances.mean()
+    dist_median = distances.median()
+    dist_std = distances.std()
+    
+    # Calculate statistics for depth
+    depth_min = depths.min()
+    depth_max = depths.max()
+    depth_mean = depths.mean()
+    depth_median = depths.median()
+    depth_std = depths.std()
+    
+    print(f"\nDistance Statistics for {dataset_name}:")
+    print(f"  Samples: {len(distances):,}")
+    print(f"  Min:     {dist_min:.2f} km")
+    print(f"  Max:     {dist_max:.2f} km")
+    print(f"  Mean:    {dist_mean:.2f} km")
+    print(f"  Median:  {dist_median:.2f} km")
+    print(f"  Std:     {dist_std:.2f} km")
+    
+    print(f"\nDepth Statistics for {dataset_name}:")
+    print(f"  Samples: {len(depths):,}")
+    print(f"  Min:     {depth_min:.2f} km")
+    print(f"  Max:     {depth_max:.2f} km")
+    print(f"  Mean:    {depth_mean:.2f} km")
+    print(f"  Median:  {depth_median:.2f} km")
+    print(f"  Std:     {depth_std:.2f} km")
+    
+    # Determine output directory
+    if output_dir is None:
+        output_dir = os.getcwd()
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Plot 1: Distance histogram
+    fig1, ax1 = plt.subplots(figsize=(10, 6))
+    ax1.hist(distances, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+    ax1.axvline(dist_mean, color='red', linestyle='--', linewidth=2, alpha=0.5,
+                label=f'Mean: {dist_mean:.2f} km')
+    ax1.axvline(dist_median, color='green', linestyle='--', linewidth=2, alpha=0.5,
+                label=f'Median: {dist_median:.2f} km')
+    ax1.set_xlabel('Source Distance (km)', fontsize=12)
+    ax1.set_ylabel('Count', fontsize=12)
+    ax1.set_yscale('log')
+    ax1.legend(fontsize=10)
+    ax1.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    output_path1 = os.path.join(output_dir, f'{dataset_name}_distance_distribution.png')
+    plt.savefig(output_path1, dpi=300, bbox_inches='tight')
+    print(f"\nDistance plot saved to: {output_path1}")
+    plt.close()
+    
+    # Plot 2: Depth histogram
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    ax2.hist(depths, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+    ax2.axvline(depth_mean, color='red', linestyle='--', linewidth=2, alpha=0.5,
+                label=f'Mean: {depth_mean:.2f} km')
+    ax2.axvline(depth_median, color='green', linestyle='--', linewidth=2, alpha=0.5,
+                label=f'Median: {depth_median:.2f} km')
+    ax2.set_xlabel('Source Depth (km)', fontsize=12)
+    ax2.set_ylabel('Count', fontsize=12)
+    ax2.set_yscale('log')
+    ax2.legend(fontsize=10)
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    output_path2 = os.path.join(output_dir, f'{dataset_name}_depth_distribution.png')
+    plt.savefig(output_path2, dpi=300, bbox_inches='tight')
+    print(f"Depth plot saved to: {output_path2}")
+    plt.close()
+    
+    return output_path1, output_path2
 
 
 def plot_snr_distribution(data: BenchmarkDataset, output_dir: str = None) -> tuple:
@@ -543,16 +644,19 @@ def plot_samples(generator: GenericGenerator, single: bool = False):
 
             # Plot Z, N, E waveforms
             channel_names = ["Z", "N", "E"]
+            waveform_colors = ['steelblue', 'coral', 'mediumseagreen']
             for i in range(sample["X"].shape[0]):
-                axs[0].plot(sample["X"][i], label=channel_names[i])
-            axs[0].set_ylabel("Waveform")
-            axs[0].legend()
+                axs[0].plot(sample["X"][i], label=channel_names[i], 
+                           color=waveform_colors[i], linewidth=1.5, alpha=0.8)
+            axs[0].set_ylabel("Waveform", fontsize=12)
+            axs[0].legend(fontsize=10)
+            axs[0].grid(True, alpha=0.3)
 
             # Plot P, S, Noise phase labels with distinctive styles
             phase_names = ["P", "S", "Noise"]
-            colors = ["tab:blue", "tab:green", "tab:orange"]
+            colors = ["steelblue", "coral", "mediumseagreen"]
             linestyles = ["-", "--", ":"]  # solid, dashed, dotted
-            linewidths = [2.5, 2.5, 2.5]
+            linewidths = [2, 2, 2]
             alphas = [0.8, 0.8, 0.8]
 
             for i in range(sample["y"].shape[0]):
@@ -564,17 +668,19 @@ def plot_samples(generator: GenericGenerator, single: bool = False):
                     linewidth=linewidths[i],
                     alpha=alphas[i],
                 )
-            axs[1].set_ylabel("Phase Label")
-            axs[1].legend()
+            axs[1].set_ylabel("Phase Label", fontsize=12)
+            axs[1].legend(fontsize=10)
+            axs[1].grid(True, alpha=0.3)
 
             # Plot magnitude label
             if "magnitude" in sample:
                 mag_data = sample["magnitude"]
-                axs[2].plot(mag_data, color="tab:orange")
-                axs[2].set_ylabel("Magnitude Label")
+                axs[2].plot(mag_data, color="steelblue", linewidth=2)
+                axs[2].set_ylabel("Magnitude Label", fontsize=12)
             else:
                 axs[2].text(0.5, 0.5, "No magnitude label", ha="center", va="center")
-            axs[2].set_xlabel("Sample Index")
+            axs[2].set_xlabel("Sample Index", fontsize=12)
+            axs[2].grid(True, alpha=0.3)
 
             plt.show()
 

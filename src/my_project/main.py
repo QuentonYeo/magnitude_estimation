@@ -241,6 +241,11 @@ def extract_model_params(args, model_type):
             params["temporal_weight"] = args.temporal_weight
         if hasattr(args, "use_uncertainty"):
             params["use_uncertainty"] = args.use_uncertainty
+        # V3 ablation parameters
+        if hasattr(args, "mamba_at_all_stages"):
+            params["mamba_at_all_stages"] = args.mamba_at_all_stages
+        if hasattr(args, "use_multiscale_fusion"):
+            params["use_multiscale_fusion"] = args.use_multiscale_fusion
 
     # MagNet specific parameters
     elif model_type == "magnet":
@@ -1035,6 +1040,23 @@ if __name__ == "__main__":
         "--use_uncertainty",
         action="store_true",
         help="Enable uncertainty head for automatic sample weighting in UMamba V3 (Kendall & Gal 2017). Recommended for large datasets (>100K samples)",
+    )
+    parser.add_argument(
+        "--mamba_at_all_stages",
+        action="store_true",
+        help="[UMamba V3 Ablation] Add Mamba layers at ALL encoder stages instead of alternating (stages 1,3). Tests computational vs. performance trade-off",
+    )
+    parser.add_argument(
+        "--use_multiscale_fusion",
+        action="store_true",
+        default=True,
+        help="[UMamba V3 Ablation] Enable multi-scale feature fusion from all stages. If disabled (--no-use_multiscale_fusion), only uses final stage features",
+    )
+    parser.add_argument(
+        "--no-use_multiscale_fusion",
+        dest="use_multiscale_fusion",
+        action="store_false",
+        help="[UMamba V3 Ablation] Disable multi-scale fusion, use only final stage features (single-scale baseline)",
     )
     parser.add_argument(
         "--cuda",

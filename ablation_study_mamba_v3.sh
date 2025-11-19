@@ -164,58 +164,79 @@ echo "" | tee -a "$SUMMARY_FILE"
 # KERNEL SIZE ABLATIONS (Dual-Head)
 # ============================================================================
 
-run_experiment "E2a" "small_kernel" \
-    "Smaller kernel: local features only" \
-    --features_per_stage 8,16,32,64 \
-    --n_stages 4 \
-    --strides 2,2,2,2 \
-    --n_blocks_per_stage 2 \
-    --kernel_size 3 \
-    --hidden_dims 192,96 \
-    --dropout 0.3 \
-    --pooling_type avg \
-    --norm std \
-    --scalar_weight 0.7 \
-    --temporal_weight 0.25 \
-    --batch_size 32
+# run_experiment "E2a" "small_kernel" \
+#     "Smaller kernel: local features only" \
+#     --features_per_stage 8,16,32,64 \
+#     --n_stages 4 \
+#     --strides 2,2,2,2 \
+#     --n_blocks_per_stage 2 \
+#     --kernel_size 3 \
+#     --hidden_dims 192,96 \
+#     --dropout 0.3 \
+#     --pooling_type avg \
+#     --norm std \
+#     --scalar_weight 0.7 \
+#     --temporal_weight 0.25 \
+#     --batch_size 32
 
-run_experiment "E2b" "medium_kernel" \
-    "Medium kernel: balanced receptive field" \
-    --features_per_stage 8,16,32,64 \
-    --n_stages 4 \
-    --strides 2,2,2,2 \
-    --n_blocks_per_stage 2 \
-    --kernel_size 5 \
-    --hidden_dims 192,96 \
-    --dropout 0.3 \
-    --pooling_type avg \
-    --norm std \
-    --scalar_weight 0.7 \
-    --temporal_weight 0.25 \
-    --batch_size 32
+# run_experiment "E2b" "medium_kernel" \
+#     "Medium kernel: balanced receptive field" \
+#     --features_per_stage 8,16,32,64 \
+#     --n_stages 4 \
+#     --strides 2,2,2,2 \
+#     --n_blocks_per_stage 2 \
+#     --kernel_size 5 \
+#     --hidden_dims 192,96 \
+#     --dropout 0.3 \
+#     --pooling_type avg \
+#     --norm std \
+#     --scalar_weight 0.7 \
+#     --temporal_weight 0.25 \
+#     --batch_size 32
 
-run_experiment "E2c" "large_kernel" \
-    "Larger kernel: more context per layer" \
-    --features_per_stage 8,16,32,64 \
-    --n_stages 4 \
-    --strides 2,2,2,2 \
-    --n_blocks_per_stage 2 \
-    --kernel_size 11 \
-    --hidden_dims 192,96 \
-    --dropout 0.3 \
-    --pooling_type avg \
-    --norm std \
-    --scalar_weight 0.7 \
-    --temporal_weight 0.25 \
-    --batch_size 32
+# run_experiment "E2c" "large_kernel" \
+#     "Larger kernel: more context per layer" \
+#     --features_per_stage 8,16,32,64 \
+#     --n_stages 4 \
+#     --strides 2,2,2,2 \
+#     --n_blocks_per_stage 2 \
+#     --kernel_size 11 \
+#     --hidden_dims 192,96 \
+#     --dropout 0.3 \
+#     --pooling_type avg \
+#     --norm std \
+#     --scalar_weight 0.7 \
+#     --temporal_weight 0.25 \
+#     --batch_size 32
+
+# # ============================================================================
+# # WIDTH ABLATIONS (features_per_stage) - Dual-Head
+# # ============================================================================
+
+# run_experiment "E3a" "wide" \
+#     "Wider network: more capacity, better accuracy" \
+#     --features_per_stage 16,32,64,128 \
+#     --n_stages 4 \
+#     --strides 2,2,2,2 \
+#     --n_blocks_per_stage 2 \
+#     --kernel_size 7 \
+#     --hidden_dims 192,96 \
+#     --dropout 0.3 \
+#     --pooling_type avg \
+#     --norm std \
+#     --scalar_weight 0.7 \
+#     --temporal_weight 0.25 \
+#     --batch_size 16
 
 # ============================================================================
-# WIDTH ABLATIONS (features_per_stage) - Dual-Head
+# MAMBA PLACEMENT ABLATION
 # ============================================================================
+# Test if Mamba layers at ALL stages improves performance vs. alternating (1,3)
+# Expected: More parameters (+11K), potentially better temporal modeling but slower
 
-run_experiment "E3a" "wide" \
-    "Wider network: more capacity, better accuracy" \
-    --features_per_stage 16,32,64,128 \
+run_experiment "E4a" "mamba_all_stages" \
+    "Mamba at all stages: test if dense Mamba improves feature modeling" \
+    --features_per_stage 8,16,32,64 \
     --n_stages 4 \
     --strides 2,2,2,2 \
     --n_blocks_per_stage 2 \
@@ -226,7 +247,30 @@ run_experiment "E3a" "wide" \
     --norm std \
     --scalar_weight 0.7 \
     --temporal_weight 0.25 \
-    --batch_size 16
+    --mamba_at_all_stages \
+    --batch_size 32
+
+# ============================================================================
+# MULTI-SCALE FUSION ABLATION
+# ============================================================================
+# Test if multi-scale fusion is critical vs. using only final stage features
+# Expected: Fewer parameters (-10K), may lose high-frequency early features
+
+run_experiment "E4b" "single_scale_no_fusion" \
+    "Single-scale (no multi-scale fusion): test if early features are critical" \
+    --features_per_stage 8,16,32,64 \
+    --n_stages 4 \
+    --strides 2,2,2,2 \
+    --n_blocks_per_stage 2 \
+    --kernel_size 7 \
+    --hidden_dims 192,96 \
+    --dropout 0.3 \
+    --pooling_type avg \
+    --norm std \
+    --scalar_weight 0.7 \
+    --temporal_weight 0.25 \
+    --no-use_multiscale_fusion \
+    --batch_size 32
 
 
 # ============================================================================

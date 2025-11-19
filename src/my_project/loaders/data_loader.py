@@ -12,6 +12,7 @@ from my_project.utils.utils import (
     plot_magnitude_distribution,
     plot_samples,
     plot_snr_distribution,
+    plot_distance_depth_distribution,
 )
 from my_project.loaders.magnitude_labellers import MagnitudeLabeller
 from my_project.models.phasenet_mag.model import PhaseNetMag
@@ -185,4 +186,5 @@ if __name__ == "__main__":
     plt.close()
 
     plot_snr_distribution(data)
+    plot_distance_depth_distribution(data)
     # dump_metadata_to_csv(data, "GEOFON_metadata.csv")

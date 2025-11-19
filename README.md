@@ -919,6 +919,13 @@ uv run python -m src.my_project.main --mode plot_history --model_path path/to/tr
 
 # Plot (and optionally filter) STEAD SNR
 uv run python -m src.my_project.main --mode plot_snr --dataset STEAD --snr_threshold 10.0
+
+# Inspect checkpoint
+uv run python -m src.my_project.utils.inspect_checkpoint path/to/model_best.pt
+
+# Inspect checkpoint verbose mode (detailed layer info)
+uv run python -m src.my_project.utils.inspect_checkpoint path/to/model_best.pt --verbose
+
 ```
 
 ### Help Command

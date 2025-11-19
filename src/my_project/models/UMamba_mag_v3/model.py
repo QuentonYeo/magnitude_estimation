@@ -122,6 +122,8 @@ class MultiScaleScalarHead(nn.Module):
         hidden_dims: Hidden dimensions for MLP [192, 96]
         pooling_type: 'avg', 'max', or 'hybrid'
         dropout: Dropout rate (default 0.25)
+        use_multiscale_fusion: If True (default), concatenate all stages.
+                               If False, only use final stage (single-scale).
     """
     def __init__(
         self,
@@ -129,10 +131,12 @@ class MultiScaleScalarHead(nn.Module):
         hidden_dims: List[int] = [192, 96],
         pooling_type: str = "max",
         dropout: float = 0.25,
+        use_multiscale_fusion: bool = True,
     ):
         super().__init__()
         self.stage_channels = stage_channels
         self.pooling_type = pooling_type
+        self.use_multiscale_fusion = use_multiscale_fusion
         
         # Pooling layer
         if pooling_type == "avg":
@@ -145,7 +149,8 @@ class MultiScaleScalarHead(nn.Module):
             raise ValueError(f"Unknown pooling type: {pooling_type}")
         
         # MLP for scalar prediction
-        total_channels = sum(stage_channels)
+        # If using multi-scale fusion, concatenate all stages; otherwise only use final stage
+        total_channels = sum(stage_channels) if use_multiscale_fusion else stage_channels[-1]
         self.mlp = nn.Sequential(
             nn.Linear(total_channels, hidden_dims[0]),
             nn.ReLU(),
@@ -164,17 +169,21 @@ class MultiScaleScalarHead(nn.Module):
         Returns:
             scalar: (B,) scalar magnitude predictions
         """
-        # Pool each stage independently
-        pooled_features = []
-        for feat in stage_features:
-            pooled = self.pool(feat)  # (B, C_i)
-            pooled_features.append(pooled)
-        
-        # Concatenate multi-scale features
-        multi_scale = torch.cat(pooled_features, dim=1)  # (B, sum(C_i))
+        if self.use_multiscale_fusion:
+            # Pool each stage independently and concatenate
+            pooled_features = []
+            for feat in stage_features:
+                pooled = self.pool(feat)  # (B, C_i)
+                pooled_features.append(pooled)
+            
+            # Concatenate multi-scale features
+            features = torch.cat(pooled_features, dim=1)  # (B, sum(C_i))
+        else:
+            # Only use final stage (single-scale)
+            features = self.pool(stage_features[-1])  # (B, C_final)
         
         # Predict scalar magnitude
-        scalar = self.mlp(multi_scale).squeeze(-1)  # (B,)
+        scalar = self.mlp(features).squeeze(-1)  # (B,)
         
         return scalar
 
@@ -259,6 +268,10 @@ class BasicResBlock(nn.Module):
 class UMambaEncoder(nn.Module):
     """
     U-Mamba style encoder with alternating Mamba and residual blocks.
+    
+    Args:
+        mamba_at_all_stages: If True, add Mamba layers at all stages. 
+                            If False (default), only at alternating stages (1, 3).
     """
     def __init__(
         self,
@@ -273,6 +286,7 @@ class UMambaEncoder(nn.Module):
         norm_op_kwargs: dict = None,
         nonlin: Type[nn.Module] = nn.LeakyReLU,
         nonlin_kwargs: dict = None,
+        mamba_at_all_stages: bool = False,
     ):
         super().__init__()
         
@@ -296,6 +310,7 @@ class UMambaEncoder(nn.Module):
         self.kernel_sizes = kernel_sizes
         self.strides = strides
         self.n_blocks_per_stage = n_blocks_per_stage
+        self.mamba_at_all_stages = mamba_at_all_stages
         
         # Initial stem
         self.stem = BasicResBlock(
@@ -360,8 +375,8 @@ class UMambaEncoder(nn.Module):
                     )
                 )
             
-            # Add Mamba layer at alternating stages
-            if stage_idx % 2 == 1:  # Stages 1 and 3
+            # Add Mamba layer at stages based on configuration
+            if self.mamba_at_all_stages or (stage_idx % 2 == 1):  # All stages or alternating (1, 3)
                 # Always use patch tokens (spatial positions as tokens)
                 # This treats the temporal dimension as the sequence
                 stage_modules.append(
@@ -433,6 +448,8 @@ class UMambaMag(WaveformModel):
         scalar_weight: Weight for scalar loss (default 0.7)
         temporal_weight: Weight for temporal loss (default 0.25)
         use_uncertainty: Whether to use uncertainty head (default True)
+        mamba_at_all_stages: If True, add Mamba at all stages. If False (default), only at alternating stages.
+        use_multiscale_fusion: If True (default), fuse all stage features. If False, only use final stage.
     """
     
     def __init__(
@@ -451,6 +468,8 @@ class UMambaMag(WaveformModel):
         scalar_weight: float = 0.7,
         temporal_weight: float = 0.25,
         use_uncertainty: bool = True,
+        mamba_at_all_stages: bool = False,
+        use_multiscale_fusion: bool = True,
         **kwargs,
     ):
         citation = (
@@ -476,6 +495,8 @@ class UMambaMag(WaveformModel):
         self.scalar_weight = scalar_weight
         self.temporal_weight = temporal_weight
         self.use_uncertainty = use_uncertainty
+        self.mamba_at_all_stages = mamba_at_all_stages
+        self.use_multiscale_fusion = use_multiscale_fusion
         
         # Default parameters
         if features_per_stage is None:
@@ -502,14 +523,16 @@ class UMambaMag(WaveformModel):
             norm_op_kwargs={'eps': 1e-5, 'affine': True},
             nonlin=nn.LeakyReLU,
             nonlin_kwargs={'inplace': True},
+            mamba_at_all_stages=mamba_at_all_stages,
         )
         
-        # Primary head: Multi-scale scalar magnitude prediction
+        # Primary head: Multi-scale or single-scale scalar magnitude prediction
         self.scalar_head = MultiScaleScalarHead(
             stage_channels=features_per_stage,
             hidden_dims=hidden_dims,
             pooling_type=pooling_type,
             dropout=dropout,
+            use_multiscale_fusion=use_multiscale_fusion,
         )
         
         # Auxiliary head: Temporal magnitude prediction
