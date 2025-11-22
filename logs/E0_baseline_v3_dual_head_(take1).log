@@ -1,0 +1,666 @@
+2025-11-11 12:30:14,599 | seisbench | WARNING | Setting remote root to: https://seisbench.gfz.de/mirror/
+Please note that this can affect your download speed.
+2025-11-11 12:30:25,437 | seisbench | WARNING | Output component order not specified, defaulting to 'ZNE'.
+2025-11-11 12:30:31,712 | seisbench | WARNING | Skipping preload, as cache is disabled.
+2025-11-11 12:30:36,964 | seisbench | WARNING | Skipping preload, as cache is disabled.
+/home/quenton.yeo/code/.venv/lib/python3.11/site-packages/torch/optim/lr_scheduler.py:60: UserWarning: The verbose parameter is deprecated. Please use get_last_lr() to access the learning rate.
+  warnings.warn(
+
+==================================================
+LOADING DATA
+==================================================
+STEAD dataset loaded: 1265657 samples
+
+Training umamba_mag_v3 on STEAD for 150 epochs...
+Model moved to cuda:2
+Training UMamba V3 Magnitude Estimator model (dual-head architecture)
+
+============================================================
+TRAINING UMAMBA V3 (DUAL-HEAD ARCHITECTURE)
+============================================================
+Model: UMambaMag_v3_STEAD
+Scalar weight: 0.7 (primary task)
+Temporal weight: 0.25 (auxiliary task)
+Learning rate: 0.001
+Batch size: 32
+Optimizer: AdamW
+Weight decay: 1e-05
+Gradient clip: 1.0
+Warmup epochs: 5
+Early stopping patience: 15
+============================================================
+Total parameters: 215,970
+Trainable parameters: 215,970
+Train samples: 1075808
+Dev samples: 63283
+============================================================
+
+Epoch 1/150:
+  Train - Loss: 0.277850 | Scalar: 0.284528 (0.5334) | Temporal: 0.314722
+  Val   - Loss: 0.188802 | Scalar: 0.187578 (0.4331) | Temporal: 0.229989
+  LR: 2.00e-04
+  *** New best validation loss: 0.188802 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 2/150:
+  Train - Loss: 0.200605 | Scalar: 0.202729 (0.4503) | Temporal: 0.234778
+  Val   - Loss: 0.168311 | Scalar: 0.165367 (0.4067) | Temporal: 0.210218
+  LR: 4.00e-04
+  *** New best validation loss: 0.168311 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 3/150:
+  Train - Loss: 0.177433 | Scalar: 0.178287 (0.4222) | Temporal: 0.210529
+  Val   - Loss: 0.151502 | Scalar: 0.147750 (0.3844) | Temporal: 0.192308
+  LR: 6.00e-04
+  *** New best validation loss: 0.151502 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 4/150:
+  Train - Loss: 0.165004 | Scalar: 0.165651 (0.4070) | Temporal: 0.196194
+  Val   - Loss: 0.149972 | Scalar: 0.148164 (0.3849) | Temporal: 0.185029
+  LR: 8.00e-04
+  *** New best validation loss: 0.149972 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 5/150:
+  Train - Loss: 0.158331 | Scalar: 0.158867 (0.3986) | Temporal: 0.188494
+  Val   - Loss: 0.132687 | Scalar: 0.129531 (0.3599) | Temporal: 0.168062
+  LR: 1.00e-03
+  *** New best validation loss: 0.132687 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_5.pt
+
+Epoch 6/150:
+  Train - Loss: 0.148027 | Scalar: 0.148166 (0.3849) | Temporal: 0.177242
+  Val   - Loss: 0.132129 | Scalar: 0.127699 (0.3573) | Temporal: 0.170957
+  LR: 1.00e-03
+  *** New best validation loss: 0.132129 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 7/150:
+  Train - Loss: 0.142252 | Scalar: 0.142263 (0.3772) | Temporal: 0.170673
+  Val   - Loss: 0.130680 | Scalar: 0.126323 (0.3554) | Temporal: 0.169014
+  LR: 1.00e-03
+  *** New best validation loss: 0.130680 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 8/150:
+  Train - Loss: 0.137867 | Scalar: 0.137935 (0.3714) | Temporal: 0.165250
+  Val   - Loss: 0.122735 | Scalar: 0.119078 (0.3451) | Temporal: 0.157520
+  LR: 1.00e-03
+  *** New best validation loss: 0.122735 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 9/150:
+  Train - Loss: 0.134426 | Scalar: 0.134481 (0.3667) | Temporal: 0.161159
+  Val   - Loss: 0.121429 | Scalar: 0.116262 (0.3410) | Temporal: 0.160183
+  LR: 1.00e-03
+  *** New best validation loss: 0.121429 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 10/150:
+  Train - Loss: 0.132237 | Scalar: 0.132369 (0.3638) | Temporal: 0.158314
+  Val   - Loss: 0.116519 | Scalar: 0.112079 (0.3348) | Temporal: 0.152255
+  LR: 1.00e-03
+  *** New best validation loss: 0.116519 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_10.pt
+
+Epoch 11/150:
+  Train - Loss: 0.129871 | Scalar: 0.129932 (0.3605) | Temporal: 0.155674
+  Val   - Loss: 0.115946 | Scalar: 0.111126 (0.3334) | Temporal: 0.152632
+  LR: 1.00e-03
+  *** New best validation loss: 0.115946 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 12/150:
+  Train - Loss: 0.127606 | Scalar: 0.127482 (0.3570) | Temporal: 0.153473
+  Val   - Loss: 0.112622 | Scalar: 0.108410 (0.3293) | Temporal: 0.146938
+  LR: 1.00e-03
+  *** New best validation loss: 0.112622 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 13/150:
+  Train - Loss: 0.126113 | Scalar: 0.126106 (0.3551) | Temporal: 0.151355
+  Val   - Loss: 0.114176 | Scalar: 0.111132 (0.3334) | Temporal: 0.145534
+  LR: 1.00e-03
+
+Epoch 14/150:
+  Train - Loss: 0.124285 | Scalar: 0.124266 (0.3525) | Temporal: 0.149195
+  Val   - Loss: 0.110657 | Scalar: 0.106330 (0.3261) | Temporal: 0.144903
+  LR: 1.00e-03
+  *** New best validation loss: 0.110657 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 15/150:
+  Train - Loss: 0.123625 | Scalar: 0.123662 (0.3517) | Temporal: 0.148245
+  Val   - Loss: 0.112504 | Scalar: 0.110191 (0.3320) | Temporal: 0.141481
+  LR: 1.00e-03
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_15.pt
+
+Epoch 16/150:
+  Train - Loss: 0.122677 | Scalar: 0.122709 (0.3503) | Temporal: 0.147122
+  Val   - Loss: 0.113516 | Scalar: 0.110569 (0.3325) | Temporal: 0.144471
+  LR: 1.00e-03
+
+Epoch 17/150:
+  Train - Loss: 0.121276 | Scalar: 0.121338 (0.3483) | Temporal: 0.145356
+  Val   - Loss: 0.107874 | Scalar: 0.102858 (0.3207) | Temporal: 0.143494
+  LR: 1.00e-03
+  *** New best validation loss: 0.107874 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 18/150:
+  Train - Loss: 0.120996 | Scalar: 0.121203 (0.3481) | Temporal: 0.144617
+  Val   - Loss: 0.104512 | Scalar: 0.100466 (0.3170) | Temporal: 0.136743
+  LR: 1.00e-03
+  *** New best validation loss: 0.104512 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 19/150:
+  Train - Loss: 0.119481 | Scalar: 0.119534 (0.3457) | Temporal: 0.143231
+  Val   - Loss: 0.107838 | Scalar: 0.104186 (0.3228) | Temporal: 0.139633
+  LR: 1.00e-03
+
+Epoch 20/150:
+  Train - Loss: 0.119312 | Scalar: 0.119424 (0.3456) | Temporal: 0.142861
+  Val   - Loss: 0.109445 | Scalar: 0.106115 (0.3258) | Temporal: 0.140657
+  LR: 1.00e-03
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_20.pt
+
+Epoch 21/150:
+  Train - Loss: 0.118533 | Scalar: 0.118619 (0.3444) | Temporal: 0.141998
+  Val   - Loss: 0.105401 | Scalar: 0.101909 (0.3192) | Temporal: 0.136258
+  LR: 1.00e-03
+
+Epoch 22/150:
+  Train - Loss: 0.118179 | Scalar: 0.118386 (0.3441) | Temporal: 0.141235
+  Val   - Loss: 0.108071 | Scalar: 0.103882 (0.3223) | Temporal: 0.141417
+  LR: 1.00e-03
+
+Epoch 23/150:
+  Train - Loss: 0.117478 | Scalar: 0.117746 (0.3431) | Temporal: 0.140226
+  Val   - Loss: 0.110143 | Scalar: 0.107838 (0.3284) | Temporal: 0.138624
+  LR: 1.00e-03
+
+Epoch 24/150:
+  Train - Loss: 0.116877 | Scalar: 0.117116 (0.3422) | Temporal: 0.139583
+  Val   - Loss: 0.101954 | Scalar: 0.097800 (0.3127) | Temporal: 0.133977
+  LR: 1.00e-03
+  *** New best validation loss: 0.101954 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 25/150:
+  Train - Loss: 0.116041 | Scalar: 0.116129 (0.3408) | Temporal: 0.139002
+  Val   - Loss: 0.103140 | Scalar: 0.099218 (0.3150) | Temporal: 0.134750
+  LR: 1.00e-03
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_25.pt
+
+Epoch 26/150:
+  Train - Loss: 0.115827 | Scalar: 0.116162 (0.3408) | Temporal: 0.138054
+  Val   - Loss: 0.102317 | Scalar: 0.097665 (0.3125) | Temporal: 0.135806
+  LR: 1.00e-03
+
+Epoch 27/150:
+  Train - Loss: 0.115405 | Scalar: 0.115671 (0.3401) | Temporal: 0.137744
+  Val   - Loss: 0.102279 | Scalar: 0.099006 (0.3147) | Temporal: 0.131899
+  LR: 1.00e-03
+
+Epoch 28/150:
+  Train - Loss: 0.115092 | Scalar: 0.115454 (0.3398) | Temporal: 0.137094
+  Val   - Loss: 0.100099 | Scalar: 0.095232 (0.3086) | Temporal: 0.133748
+  LR: 1.00e-03
+  *** New best validation loss: 0.100099 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 29/150:
+  Train - Loss: 0.114481 | Scalar: 0.114879 (0.3389) | Temporal: 0.136262
+  Val   - Loss: 0.101536 | Scalar: 0.098120 (0.3132) | Temporal: 0.131410
+  LR: 1.00e-03
+
+Epoch 30/150:
+  Train - Loss: 0.114294 | Scalar: 0.114636 (0.3386) | Temporal: 0.136195
+  Val   - Loss: 0.102716 | Scalar: 0.099266 (0.3151) | Temporal: 0.132918
+  LR: 1.00e-03
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_30.pt
+
+Epoch 31/150:
+  Train - Loss: 0.113927 | Scalar: 0.114280 (0.3381) | Temporal: 0.135724
+  Val   - Loss: 0.100944 | Scalar: 0.097144 (0.3117) | Temporal: 0.131773
+  LR: 1.00e-03
+
+Epoch 32/150:
+  Train - Loss: 0.114572 | Scalar: 0.115219 (0.3394) | Temporal: 0.135672
+  Val   - Loss: 0.102242 | Scalar: 0.098632 (0.3141) | Temporal: 0.132798
+  LR: 1.00e-03
+
+Epoch 33/150:
+  Train - Loss: 0.113214 | Scalar: 0.113681 (0.3372) | Temporal: 0.134548
+  Val   - Loss: 0.102995 | Scalar: 0.099092 (0.3148) | Temporal: 0.134524
+  LR: 1.00e-03
+
+Epoch 34/150:
+  Train - Loss: 0.113308 | Scalar: 0.113808 (0.3374) | Temporal: 0.134571
+  Val   - Loss: 0.100330 | Scalar: 0.096922 (0.3113) | Temporal: 0.129938
+  LR: 1.00e-03
+
+Epoch 35/150:
+  Train - Loss: 0.104306 | Scalar: 0.103847 (0.3223) | Temporal: 0.126451
+  Val   - Loss: 0.093929 | Scalar: 0.090075 (0.3001) | Temporal: 0.123506
+  LR: 5.00e-04
+  *** New best validation loss: 0.093929 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_35.pt
+
+Epoch 36/150:
+  Train - Loss: 0.102869 | Scalar: 0.102275 (0.3198) | Temporal: 0.125106
+  Val   - Loss: 0.091700 | Scalar: 0.087516 (0.2958) | Temporal: 0.121755
+  LR: 5.00e-04
+  *** New best validation loss: 0.091700 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 37/150:
+  Train - Loss: 0.102589 | Scalar: 0.102030 (0.3194) | Temporal: 0.124672
+  Val   - Loss: 0.093644 | Scalar: 0.089976 (0.3000) | Temporal: 0.122641
+  LR: 5.00e-04
+
+Epoch 38/150:
+  Train - Loss: 0.102613 | Scalar: 0.102118 (0.3196) | Temporal: 0.124520
+  Val   - Loss: 0.091516 | Scalar: 0.087093 (0.2951) | Temporal: 0.122203
+  LR: 5.00e-04
+  *** New best validation loss: 0.091516 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 39/150:
+  Train - Loss: 0.102322 | Scalar: 0.101864 (0.3192) | Temporal: 0.124069
+  Val   - Loss: 0.094487 | Scalar: 0.090763 (0.3013) | Temporal: 0.123812
+  LR: 5.00e-04
+
+Epoch 40/150:
+  Train - Loss: 0.102200 | Scalar: 0.101596 (0.3187) | Temporal: 0.124333
+  Val   - Loss: 0.095855 | Scalar: 0.092399 (0.3040) | Temporal: 0.124702
+  LR: 5.00e-04
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_40.pt
+
+Epoch 41/150:
+  Train - Loss: 0.101784 | Scalar: 0.101123 (0.3180) | Temporal: 0.123992
+  Val   - Loss: 0.090859 | Scalar: 0.086830 (0.2947) | Temporal: 0.120314
+  LR: 5.00e-04
+  *** New best validation loss: 0.090859 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 42/150:
+  Train - Loss: 0.101559 | Scalar: 0.100882 (0.3176) | Temporal: 0.123766
+  Val   - Loss: 0.092717 | Scalar: 0.088717 (0.2979) | Temporal: 0.122462
+  LR: 5.00e-04
+
+Epoch 43/150:
+  Train - Loss: 0.101495 | Scalar: 0.100993 (0.3178) | Temporal: 0.123198
+  Val   - Loss: 0.091574 | Scalar: 0.087584 (0.2959) | Temporal: 0.121062
+  LR: 5.00e-04
+
+Epoch 44/150:
+  Train - Loss: 0.101538 | Scalar: 0.100902 (0.3177) | Temporal: 0.123626
+  Val   - Loss: 0.092048 | Scalar: 0.088482 (0.2975) | Temporal: 0.120443
+  LR: 5.00e-04
+
+Epoch 45/150:
+  Train - Loss: 0.101044 | Scalar: 0.100394 (0.3169) | Temporal: 0.123070
+  Val   - Loss: 0.090768 | Scalar: 0.086185 (0.2936) | Temporal: 0.121755
+  LR: 5.00e-04
+  *** New best validation loss: 0.090768 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_45.pt
+
+Epoch 46/150:
+  Train - Loss: 0.100888 | Scalar: 0.100266 (0.3166) | Temporal: 0.122810
+  Val   - Loss: 0.090642 | Scalar: 0.087511 (0.2958) | Temporal: 0.117535
+  LR: 5.00e-04
+  *** New best validation loss: 0.090642 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 47/150:
+  Train - Loss: 0.100905 | Scalar: 0.100406 (0.3169) | Temporal: 0.122481
+  Val   - Loss: 0.091794 | Scalar: 0.087810 (0.2963) | Temporal: 0.121309
+  LR: 5.00e-04
+
+Epoch 48/150:
+  Train - Loss: 0.100605 | Scalar: 0.100039 (0.3163) | Temporal: 0.122308
+  Val   - Loss: 0.090186 | Scalar: 0.085473 (0.2924) | Temporal: 0.121419
+  LR: 5.00e-04
+  *** New best validation loss: 0.090186 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 49/150:
+  Train - Loss: 0.100175 | Scalar: 0.099521 (0.3155) | Temporal: 0.122044
+  Val   - Loss: 0.091423 | Scalar: 0.087392 (0.2956) | Temporal: 0.120993
+  LR: 5.00e-04
+
+Epoch 50/150:
+  Train - Loss: 0.100355 | Scalar: 0.099727 (0.3158) | Temporal: 0.122183
+  Val   - Loss: 0.092488 | Scalar: 0.089286 (0.2988) | Temporal: 0.119953
+  LR: 5.00e-04
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_50.pt
+
+Epoch 51/150:
+  Train - Loss: 0.100205 | Scalar: 0.099570 (0.3155) | Temporal: 0.122024
+  Val   - Loss: 0.090212 | Scalar: 0.086573 (0.2942) | Temporal: 0.118443
+  LR: 5.00e-04
+
+Epoch 52/150:
+  Train - Loss: 0.100378 | Scalar: 0.099813 (0.3159) | Temporal: 0.122036
+  Val   - Loss: 0.092458 | Scalar: 0.089114 (0.2985) | Temporal: 0.120311
+  LR: 5.00e-04
+
+Epoch 53/150:
+  Train - Loss: 0.100281 | Scalar: 0.099750 (0.3158) | Temporal: 0.121824
+  Val   - Loss: 0.090569 | Scalar: 0.086630 (0.2943) | Temporal: 0.119710
+  LR: 5.00e-04
+
+Epoch 54/150:
+  Train - Loss: 0.100018 | Scalar: 0.099442 (0.3153) | Temporal: 0.121636
+  Val   - Loss: 0.090891 | Scalar: 0.087307 (0.2955) | Temporal: 0.119103
+  LR: 5.00e-04
+
+Epoch 55/150:
+  Train - Loss: 0.095457 | Scalar: 0.094427 (0.3073) | Temporal: 0.117432
+  Val   - Loss: 0.086988 | Scalar: 0.082601 (0.2874) | Temporal: 0.116668
+  LR: 2.50e-04
+  *** New best validation loss: 0.086988 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_55.pt
+
+Epoch 56/150:
+  Train - Loss: 0.095327 | Scalar: 0.094212 (0.3069) | Temporal: 0.117516
+  Val   - Loss: 0.085855 | Scalar: 0.081713 (0.2859) | Temporal: 0.114625
+  LR: 2.50e-04
+  *** New best validation loss: 0.085855 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 57/150:
+  Train - Loss: 0.094582 | Scalar: 0.093352 (0.3055) | Temporal: 0.116941
+  Val   - Loss: 0.085457 | Scalar: 0.080830 (0.2843) | Temporal: 0.115505
+  LR: 2.50e-04
+  *** New best validation loss: 0.085457 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 58/150:
+  Train - Loss: 0.094926 | Scalar: 0.093804 (0.3063) | Temporal: 0.117052
+  Val   - Loss: 0.087399 | Scalar: 0.083659 (0.2892) | Temporal: 0.115350
+  LR: 2.50e-04
+
+Epoch 59/150:
+  Train - Loss: 0.094478 | Scalar: 0.093294 (0.3054) | Temporal: 0.116691
+  Val   - Loss: 0.085823 | Scalar: 0.081464 (0.2854) | Temporal: 0.115191
+  LR: 2.50e-04
+
+Epoch 60/150:
+  Train - Loss: 0.094413 | Scalar: 0.093165 (0.3052) | Temporal: 0.116792
+  Val   - Loss: 0.085789 | Scalar: 0.081470 (0.2854) | Temporal: 0.115038
+  LR: 2.50e-04
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_60.pt
+
+Epoch 61/150:
+  Train - Loss: 0.094710 | Scalar: 0.093568 (0.3059) | Temporal: 0.116851
+  Val   - Loss: 0.084614 | Scalar: 0.079984 (0.2828) | Temporal: 0.114501
+  LR: 2.50e-04
+  *** New best validation loss: 0.084614 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 62/150:
+  Train - Loss: 0.094189 | Scalar: 0.093033 (0.3050) | Temporal: 0.116266
+  Val   - Loss: 0.086352 | Scalar: 0.081943 (0.2863) | Temporal: 0.115968
+  LR: 2.50e-04
+
+Epoch 63/150:
+  Train - Loss: 0.094223 | Scalar: 0.093011 (0.3050) | Temporal: 0.116462
+  Val   - Loss: 0.086092 | Scalar: 0.081651 (0.2857) | Temporal: 0.115745
+  LR: 2.50e-04
+
+Epoch 64/150:
+  Train - Loss: 0.093863 | Scalar: 0.092660 (0.3044) | Temporal: 0.116006
+  Val   - Loss: 0.085237 | Scalar: 0.080732 (0.2841) | Temporal: 0.114899
+  LR: 2.50e-04
+
+Epoch 65/150:
+  Train - Loss: 0.094180 | Scalar: 0.092947 (0.3049) | Temporal: 0.116469
+  Val   - Loss: 0.085257 | Scalar: 0.080793 (0.2842) | Temporal: 0.114807
+  LR: 2.50e-04
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_65.pt
+
+Epoch 66/150:
+  Train - Loss: 0.093667 | Scalar: 0.092525 (0.3042) | Temporal: 0.115599
+  Val   - Loss: 0.087273 | Scalar: 0.084087 (0.2900) | Temporal: 0.113649
+  LR: 2.50e-04
+
+Epoch 67/150:
+  Train - Loss: 0.094206 | Scalar: 0.093114 (0.3051) | Temporal: 0.116106
+  Val   - Loss: 0.087030 | Scalar: 0.082783 (0.2877) | Temporal: 0.116329
+  LR: 2.50e-04
+
+Epoch 68/150:
+  Train - Loss: 0.091761 | Scalar: 0.090297 (0.3005) | Temporal: 0.114213
+  Val   - Loss: 0.083981 | Scalar: 0.079774 (0.2824) | Temporal: 0.112558
+  LR: 1.25e-04
+  *** New best validation loss: 0.083981 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 69/150:
+  Train - Loss: 0.091513 | Scalar: 0.090007 (0.3000) | Temporal: 0.114034
+  Val   - Loss: 0.083724 | Scalar: 0.079517 (0.2820) | Temporal: 0.112247
+  LR: 1.25e-04
+  *** New best validation loss: 0.083724 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 70/150:
+  Train - Loss: 0.091168 | Scalar: 0.089660 (0.2994) | Temporal: 0.113625
+  Val   - Loss: 0.083076 | Scalar: 0.078280 (0.2798) | Temporal: 0.113118
+  LR: 1.25e-04
+  *** New best validation loss: 0.083076 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_70.pt
+
+Epoch 71/150:
+  Train - Loss: 0.090938 | Scalar: 0.089311 (0.2988) | Temporal: 0.113682
+  Val   - Loss: 0.083822 | Scalar: 0.078979 (0.2810) | Temporal: 0.114146
+  LR: 1.25e-04
+
+Epoch 72/150:
+  Train - Loss: 0.091254 | Scalar: 0.089771 (0.2996) | Temporal: 0.113659
+  Val   - Loss: 0.083462 | Scalar: 0.078700 (0.2805) | Temporal: 0.113487
+  LR: 1.25e-04
+
+Epoch 73/150:
+  Train - Loss: 0.090874 | Scalar: 0.089267 (0.2988) | Temporal: 0.113548
+  Val   - Loss: 0.084822 | Scalar: 0.080076 (0.2830) | Temporal: 0.115074
+  LR: 1.25e-04
+
+Epoch 74/150:
+  Train - Loss: 0.090839 | Scalar: 0.089237 (0.2987) | Temporal: 0.113494
+  Val   - Loss: 0.083828 | Scalar: 0.079446 (0.2819) | Temporal: 0.112862
+  LR: 1.25e-04
+
+Epoch 75/150:
+  Train - Loss: 0.090997 | Scalar: 0.089472 (0.2991) | Temporal: 0.113467
+  Val   - Loss: 0.083564 | Scalar: 0.078701 (0.2805) | Temporal: 0.113892
+  LR: 1.25e-04
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_75.pt
+
+Epoch 76/150:
+  Train - Loss: 0.090809 | Scalar: 0.089140 (0.2986) | Temporal: 0.113644
+  Val   - Loss: 0.083542 | Scalar: 0.079041 (0.2811) | Temporal: 0.112853
+  LR: 1.25e-04
+
+Epoch 77/150:
+  Train - Loss: 0.089565 | Scalar: 0.087809 (0.2963) | Temporal: 0.112395
+  Val   - Loss: 0.082256 | Scalar: 0.077525 (0.2784) | Temporal: 0.111954
+  LR: 6.25e-05
+  *** New best validation loss: 0.082256 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 78/150:
+  Train - Loss: 0.089477 | Scalar: 0.087620 (0.2960) | Temporal: 0.112575
+  Val   - Loss: 0.082984 | Scalar: 0.078091 (0.2794) | Temporal: 0.113279
+  LR: 6.25e-05
+
+Epoch 79/150:
+  Train - Loss: 0.089540 | Scalar: 0.087776 (0.2963) | Temporal: 0.112388
+  Val   - Loss: 0.080977 | Scalar: 0.076447 (0.2765) | Temporal: 0.109858
+  LR: 6.25e-05
+  *** New best validation loss: 0.080977 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 80/150:
+  Train - Loss: 0.089605 | Scalar: 0.088008 (0.2967) | Temporal: 0.111999
+  Val   - Loss: 0.081729 | Scalar: 0.077664 (0.2787) | Temporal: 0.109456
+  LR: 6.25e-05
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_80.pt
+
+Epoch 81/150:
+  Train - Loss: 0.089543 | Scalar: 0.087810 (0.2963) | Temporal: 0.112301
+  Val   - Loss: 0.081426 | Scalar: 0.076227 (0.2761) | Temporal: 0.112265
+  LR: 6.25e-05
+
+Epoch 82/150:
+  Train - Loss: 0.089592 | Scalar: 0.087791 (0.2963) | Temporal: 0.112550
+  Val   - Loss: 0.081524 | Scalar: 0.076740 (0.2770) | Temporal: 0.111223
+  LR: 6.25e-05
+
+Epoch 83/150:
+  Train - Loss: 0.089169 | Scalar: 0.087386 (0.2956) | Temporal: 0.111995
+  Val   - Loss: 0.081933 | Scalar: 0.077358 (0.2781) | Temporal: 0.111132
+  LR: 6.25e-05
+
+Epoch 84/150:
+  Train - Loss: 0.089525 | Scalar: 0.087825 (0.2964) | Temporal: 0.112189
+  Val   - Loss: 0.080739 | Scalar: 0.075955 (0.2756) | Temporal: 0.110281
+  LR: 6.25e-05
+  *** New best validation loss: 0.080739 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+
+Epoch 85/150:
+  Train - Loss: 0.089220 | Scalar: 0.087413 (0.2957) | Temporal: 0.112125
+  Val   - Loss: 0.081975 | Scalar: 0.077168 (0.2778) | Temporal: 0.111831
+  LR: 6.25e-05
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_85.pt
+
+Epoch 86/150:
+  Train - Loss: 0.089197 | Scalar: 0.087352 (0.2956) | Temporal: 0.112203
+  Val   - Loss: 0.082072 | Scalar: 0.077862 (0.2790) | Temporal: 0.110275
+  LR: 6.25e-05
+
+Epoch 87/150:
+  Train - Loss: 0.089226 | Scalar: 0.087477 (0.2958) | Temporal: 0.111968
+  Val   - Loss: 0.081642 | Scalar: 0.076975 (0.2774) | Temporal: 0.111039
+  LR: 6.25e-05
+
+Epoch 88/150:
+  Train - Loss: 0.089354 | Scalar: 0.087621 (0.2960) | Temporal: 0.112077
+  Val   - Loss: 0.081835 | Scalar: 0.077220 (0.2779) | Temporal: 0.111122
+  LR: 6.25e-05
+
+Epoch 89/150:
+  Train - Loss: 0.089102 | Scalar: 0.087345 (0.2955) | Temporal: 0.111843
+  Val   - Loss: 0.082677 | Scalar: 0.077517 (0.2784) | Temporal: 0.113659
+  LR: 6.25e-05
+
+Epoch 90/150:
+  Train - Loss: 0.088890 | Scalar: 0.087151 (0.2952) | Temporal: 0.111537
+  Val   - Loss: 0.080483 | Scalar: 0.075896 (0.2755) | Temporal: 0.109423
+  LR: 6.25e-05
+  *** New best validation loss: 0.080483 ***
+  Saved best model to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/best_model.pt
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_90.pt
+
+Epoch 91/150:
+  Train - Loss: 0.089293 | Scalar: 0.087458 (0.2957) | Temporal: 0.112290
+  Val   - Loss: 0.081418 | Scalar: 0.076333 (0.2763) | Temporal: 0.111937
+  LR: 6.25e-05
+
+Epoch 92/150:
+  Train - Loss: 0.089365 | Scalar: 0.087596 (0.2960) | Temporal: 0.112192
+  Val   - Loss: 0.081256 | Scalar: 0.076486 (0.2766) | Temporal: 0.110866
+  LR: 6.25e-05
+
+Epoch 93/150:
+  Train - Loss: 0.088864 | Scalar: 0.087048 (0.2950) | Temporal: 0.111720
+  Val   - Loss: 0.081732 | Scalar: 0.077047 (0.2776) | Temporal: 0.111197
+  LR: 6.25e-05
+
+Epoch 94/150:
+  Train - Loss: 0.088975 | Scalar: 0.087174 (0.2953) | Temporal: 0.111813
+  Val   - Loss: 0.081779 | Scalar: 0.077019 (0.2775) | Temporal: 0.111465
+  LR: 6.25e-05
+
+Epoch 95/150:
+  Train - Loss: 0.089006 | Scalar: 0.087161 (0.2952) | Temporal: 0.111973
+  Val   - Loss: 0.082278 | Scalar: 0.077657 (0.2787) | Temporal: 0.111674
+  LR: 6.25e-05
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_95.pt
+
+Epoch 96/150:
+  Train - Loss: 0.089043 | Scalar: 0.087323 (0.2955) | Temporal: 0.111668
+  Val   - Loss: 0.081813 | Scalar: 0.077188 (0.2778) | Temporal: 0.111126
+  LR: 6.25e-05
+
+Epoch 97/150:
+  Train - Loss: 0.088365 | Scalar: 0.086451 (0.2940) | Temporal: 0.111397
+  Val   - Loss: 0.081969 | Scalar: 0.077416 (0.2782) | Temporal: 0.111110
+  LR: 3.13e-05
+
+Epoch 98/150:
+  Train - Loss: 0.088225 | Scalar: 0.086370 (0.2939) | Temporal: 0.111063
+  Val   - Loss: 0.081264 | Scalar: 0.076439 (0.2765) | Temporal: 0.111028
+  LR: 3.13e-05
+
+Epoch 99/150:
+  Train - Loss: 0.088708 | Scalar: 0.086891 (0.2948) | Temporal: 0.111537
+  Val   - Loss: 0.082540 | Scalar: 0.078020 (0.2793) | Temporal: 0.111705
+  LR: 3.13e-05
+
+Epoch 100/150:
+  Train - Loss: 0.088260 | Scalar: 0.086345 (0.2938) | Temporal: 0.111276
+  Val   - Loss: 0.080829 | Scalar: 0.076392 (0.2764) | Temporal: 0.109417
+  LR: 3.13e-05
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_100.pt
+
+Epoch 101/150:
+  Train - Loss: 0.088106 | Scalar: 0.086097 (0.2934) | Temporal: 0.111355
+  Val   - Loss: 0.081972 | Scalar: 0.077228 (0.2779) | Temporal: 0.111650
+  LR: 3.13e-05
+
+Epoch 102/150:
+  Train - Loss: 0.088317 | Scalar: 0.086358 (0.2939) | Temporal: 0.111465
+  Val   - Loss: 0.080584 | Scalar: 0.075907 (0.2755) | Temporal: 0.109798
+  LR: 3.13e-05
+
+Epoch 103/150:
+  Train - Loss: 0.088057 | Scalar: 0.086122 (0.2935) | Temporal: 0.111085
+  Val   - Loss: 0.080838 | Scalar: 0.076150 (0.2760) | Temporal: 0.110132
+  LR: 1.56e-05
+
+Epoch 104/150:
+  Train - Loss: 0.087775 | Scalar: 0.085776 (0.2929) | Temporal: 0.110927
+  Val   - Loss: 0.081157 | Scalar: 0.076305 (0.2762) | Temporal: 0.110975
+  LR: 1.56e-05
+
+Epoch 105/150:
+  Train - Loss: 0.087655 | Scalar: 0.085718 (0.2928) | Temporal: 0.110609
+  Val   - Loss: 0.080867 | Scalar: 0.075589 (0.2749) | Temporal: 0.111818
+  LR: 1.56e-05
+  Saved checkpoint to src/trained_weights/UMambaMag_v3_STEAD_20251111_123026/checkpoint_epoch_105.pt
+
+Early stopping triggered after 105 epochs
+No improvement for 15 epochs
+
+============================================================
+TRAINING COMPLETED
+============================================================
+Best validation loss: 0.080483
+Final validation loss: 0.080867
+Models saved to: src/trained_weights/UMambaMag_v3_STEAD_20251111_123026
+============================================================
+
+==================================================
+

@@ -1,0 +1,81 @@
+2025-11-15 01:55:07,301 | seisbench | WARNING | Setting remote root to: https://seisbench.gfz.de/mirror/
+Please note that this can affect your download speed.
+2025-11-15 01:55:17,935 | seisbench | WARNING | Output component order not specified, defaulting to 'ZNE'.
+2025-11-15 01:55:24,242 | seisbench | WARNING | Skipping preload, as cache is disabled.
+2025-11-15 01:55:29,454 | seisbench | WARNING | Skipping preload, as cache is disabled.
+/home/quenton.yeo/code/.venv/lib/python3.11/site-packages/torch/optim/lr_scheduler.py:60: UserWarning: The verbose parameter is deprecated. Please use get_last_lr() to access the learning rate.
+  warnings.warn(
+
+==================================================
+LOADING DATA
+==================================================
+STEAD dataset loaded: 1265657 samples
+
+Training umamba_mag_v2 on STEAD for 150 epochs...
+Model moved to cuda:0
+Training UMamba V2 Magnitude Estimator model (encoder-only with pooling)
+
+============================================================
+TRAINING UMAMBAMAG V2 (ENCODER-ONLY WITH POOLING)
+============================================================
+Model: UMambaMag_v2_STEAD
+Dataset: STEAD
+Batch size: 32
+Learning rate: 0.001
+Epochs: 150
+Warmup epochs: 5
+============================================================
+Model is on device: cuda:0
+Total parameters: 180,945
+Trainable parameters: 180,945
+
+Loading data...
+Train batches: 33619
+Dev batches: 1978
+
+Saving models to: src/trained_weights/UMambaMag_v2_STEAD_20251115_015529
+
+
+============================================================
+Epoch 1/150
+Learning Rate: 2.00e-04
+============================================================
+
+============================================================
+Epoch 1 Summary:
+  Train - Loss: 0.247101 | MSE: 0.247101 | RMSE: 0.497092 | MAE: 0.344222
+  Val   - Loss: 0.162278 | MSE: 0.162278 | RMSE: 0.402837 | MAE: 0.272725
+============================================================
+
+✓ New best model saved! Val Loss: 0.162278
+
+============================================================
+Epoch 2/150
+Learning Rate: 4.00e-04
+============================================================
+
+============================================================
+Epoch 2 Summary:
+  Train - Loss: 0.173987 | MSE: 0.173987 | RMSE: 0.417118 | MAE: 0.293837
+  Val   - Loss: 0.136565 | MSE: 0.136565 | RMSE: 0.369547 | MAE: 0.250028
+============================================================
+
+✓ New best model saved! Val Loss: 0.136565
+
+============================================================
+Epoch 3/150
+Learning Rate: 6.00e-04
+============================================================
+
+============================================================
+Epoch 3 Summary:
+  Train - Loss: 0.153112 | MSE: 0.153112 | RMSE: 0.391296 | MAE: 0.275318
+  Val   - Loss: 0.123009 | MSE: 0.123009 | RMSE: 0.350726 | MAE: 0.234778
+============================================================
+
+✓ New best model saved! Val Loss: 0.123009
+
+============================================================
+Epoch 4/150
+Learning Rate: 8.00e-04
+============================================================
