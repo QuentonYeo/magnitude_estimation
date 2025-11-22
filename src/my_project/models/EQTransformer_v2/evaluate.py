@@ -10,6 +10,7 @@ from tqdm import tqdm
 import seisbench.data as sbd
 from my_project.models.EQTransformer_v2.model import EQTransformerMagV2
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 import os
 from datetime import datetime
 
@@ -69,6 +70,9 @@ def evaluate_eqtransformer_mag(
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
+
+    # Get test data for metadata access
+    _, _, test_data = data.train_dev_test()
 
     # Load test data
     test_generator, test_loader, _ = dl.load_dataset(
@@ -151,122 +155,26 @@ def evaluate_eqtransformer_mag(
         print(f"Total inference time: {total_inference_time:.2f}s")
     print("=" * 60)
 
-    # Plot examples if requested
-    if plot_examples and num_examples > 0:
-        # Set up output directory
+    # Generate standardized scalar evaluation plots (7 individual plots)
+    if plot_examples:
         if output_dir is None:
             output_dir = os.path.dirname(model_path)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        plot_path = os.path.join(
-            output_dir, f"eqtransformermag_v2_evaluation_{timestamp}.png"
-        )
-
-        # Create comprehensive evaluation plots
-        fig, axes = plt.subplots(3, 2, figsize=(15, 12))
-
-        # Scatter plot: Predicted vs True
-        axes[0, 0].scatter(all_targets, all_predictions, alpha=0.6, s=15)
-        axes[0, 0].plot(
-            [all_targets.min(), all_targets.max()],
-            [all_targets.min(), all_targets.max()],
-            "r--",
-            linewidth=2,
-        )
-        axes[0, 0].set_xlabel("True Magnitude")
-        axes[0, 0].set_ylabel("Predicted Magnitude")
-        axes[0, 0].set_title(f"EQTransformerMag V2: Predicted vs True (R² = {r2:.3f})")
-        axes[0, 0].grid(True, alpha=0.3)
-
-        # Residual plot
-        residuals = all_predictions - all_targets
-        axes[0, 1].scatter(all_targets, residuals, alpha=0.6, s=15)
-        axes[0, 1].axhline(y=0, color="r", linestyle="--", linewidth=2)
-        axes[0, 1].set_xlabel("True Magnitude")
-        axes[0, 1].set_ylabel("Residual (Predicted - True)")
-        axes[0, 1].set_title(f"Residual Plot (RMSE = {rmse:.3f})")
-        axes[0, 1].grid(True, alpha=0.3)
-
-        # Histogram of residuals
-        axes[1, 0].hist(residuals, bins=50, alpha=0.7, density=True, color="blue")
-        axes[1, 0].axvline(x=0, color="r", linestyle="--", linewidth=2)
-        axes[1, 0].set_xlabel("Residual (Predicted - True)")
-        axes[1, 0].set_ylabel("Density")
-        axes[1, 0].set_title(f"Residual Distribution (MAE = {mae:.3f})")
-        axes[1, 0].grid(True, alpha=0.3)
-
-        # Magnitude distribution comparison
-        axes[1, 1].hist(
-            all_targets, bins=30, alpha=0.7, label="True", density=True, color="green"
-        )
-        axes[1, 1].hist(
-            all_predictions,
-            bins=30,
-            alpha=0.7,
-            label="Predicted",
-            density=True,
-            color="orange",
-        )
-        axes[1, 1].set_xlabel("Magnitude")
-        axes[1, 1].set_ylabel("Density")
-        axes[1, 1].set_title("Magnitude Distribution Comparison")
-        axes[1, 1].legend()
-        axes[1, 1].grid(True, alpha=0.3)
-
-        # Time series examples - show waveform and scalar prediction
-        # Note: Model outputs scalar, so we visualize temporal labels with scalar prediction
-        n_examples_plot = min(num_examples, len(all_predictions))
         
-        # For time series visualization, we'll show the temporal labels and scalar predictions
-        axes[2, 0].set_title("Example Temporal Labels and Scalar Predictions")
-        for i in range(n_examples_plot):
-            time_axis = np.arange(all_temporal_labels.shape[1]) / model.sampling_rate
-            # Plot temporal label (ground truth evolution)
-            axes[2, 0].plot(
-                time_axis,
-                all_temporal_labels[i],
-                alpha=0.7,
-                linewidth=1,
-                linestyle="--",
-                label=f"True temporal {i+1}" if i < 3 else None,
-            )
-            # Plot scalar prediction as horizontal line
-            axes[2, 0].axhline(
-                y=all_predictions[i],
-                alpha=0.5,
-                linewidth=2,
-                label=f"Pred scalar {i+1}" if i < 3 else None,
-            )
-        axes[2, 0].set_xlabel("Time (s)")
-        axes[2, 0].set_ylabel("Magnitude")
-        axes[2, 0].grid(True, alpha=0.3)
-        if n_examples_plot <= 3:
-            axes[2, 0].legend()
-
-        # Error statistics box plot
-        error_stats = [
-            np.abs(residuals),  # Absolute errors
-            residuals[residuals >= 0],  # Positive residuals
-            residuals[residuals < 0],  # Negative residuals
-        ]
-        labels = ["Absolute Errors", "Over-predictions", "Under-predictions"]
-
-        axes[2, 1].boxplot(
-            [err for err in error_stats if len(err) > 0],
-            labels=[lbl for i, lbl in enumerate(labels) if len(error_stats[i]) > 0],
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Call standardized plotting function
+        plot_scalar_summary(
+            all_predictions,
+            all_targets,
+            mse,
+            rmse,
+            mae,
+            r2,
+            test_data,
+            output_dir,
+            timestamp,
+            model_name="eqtransformermag"
         )
-        axes[2, 1].set_ylabel("Error Magnitude")
-        axes[2, 1].set_title("Error Distribution Statistics")
-        axes[2, 1].grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=300, bbox_inches="tight")
-        print(f"Evaluation plots saved to: {plot_path}")
-
-        if plot_examples:  # Also display if requested
-            plt.show()
-        else:
-            plt.close()
 
     # Return results dictionary
     results = {

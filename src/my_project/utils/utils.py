@@ -240,11 +240,11 @@ def plot_training_history(history_path: str, show_plot: bool = False, detailed_m
         print(f"Final training loss: {train_losses[-1]:.6f}")
         print(f"Final validation loss: {val_losses[-1]:.6f}")
         
-        # Create simple plots
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+        # Create simple plot
+        fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
         epochs = range(1, len(train_losses) + 1)
         
-        # Plot 1: Loss curves
+        # Plot: Loss curves
         ax1.plot(epochs, train_losses, color='steelblue', label="Training Loss", linewidth=2)
         ax1.plot(epochs, val_losses, color='coral', label="Validation Loss", linewidth=2)
         ax1.axhline(y=best_val_loss, color="red", linestyle="--", linewidth=1.5, alpha=0.5,
@@ -254,17 +254,6 @@ def plot_training_history(history_path: str, show_plot: bool = False, detailed_m
         ax1.set_title("Training and Validation Loss")
         ax1.legend(fontsize=10)
         ax1.grid(True, alpha=0.3)
-        
-        # Plot 2: Learning progress (log scale)
-        ax2.semilogy(epochs, train_losses, color='steelblue', label="Training Loss", linewidth=2)
-        ax2.semilogy(epochs, val_losses, color='coral', label="Validation Loss", linewidth=2)
-        ax2.axhline(y=best_val_loss, color="red", linestyle="--", linewidth=1.5, alpha=0.5,
-                   label=f"Best Val Loss: {best_val_loss:.4f}")
-        ax2.set_xlabel("Epoch", fontsize=12)
-        ax2.set_ylabel("Loss (MSE) - Log Scale", fontsize=12)
-        ax2.set_title("Training Progress (Log Scale)")
-        ax2.legend(fontsize=10)
-        ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
@@ -689,3 +678,276 @@ def plot_samples(generator: GenericGenerator, single: bool = False):
 
     except KeyboardInterrupt:
         print("\nStopped by user")
+
+
+def plot_scalar_summary(pred, target, mse, rmse, mae, r2, test_data, output_dir, timestamp, model_name="model"):
+    """
+    Plot summary of scalar predictions (7 individual plots).
+    
+    Args:
+        pred: Predicted magnitude values (numpy array)
+        target: True magnitude values (numpy array)
+        mse: Mean squared error
+        rmse: Root mean squared error
+        mae: Mean absolute error
+        r2: R² score
+        test_data: Test dataset with metadata (BenchmarkDataset split)
+        output_dir: Directory to save plots
+        timestamp: Timestamp string for filename uniqueness
+        model_name: Name of the model for filename prefix (default: "model")
+    """
+    residuals = pred - target
+    std_dev = np.std(residuals)
+    
+    # Plot 1: Scatter - predicted vs true with stats box
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(target, pred, alpha=0.6, s=20, edgecolors='k', linewidths=0.5)
+    ax.plot([target.min(), target.max()], [target.min(), target.max()], "r--", lw=2, label="Perfect Prediction")
+    ax.set_xlabel("True Magnitude", fontsize=12, fontweight='bold')
+    ax.set_ylabel("Predicted Magnitude", fontsize=12, fontweight='bold')
+    # ax.set_title(f"{model_name}: Predicted vs True Magnitude", fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=10)
+    
+    # # Add statistics box
+    # textstr = '\n'.join([
+    #     f'$R^2$ = {r2:.4f}',
+    #     f'MAE = {mae:.4f}',
+    #     f'RMSE = {rmse:.4f}',
+    #     f'Std Dev = {std_dev:.4f}',
+    #     f'N = {len(pred)}'
+    # ])
+    # props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+    # ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=11,
+    #         verticalalignment='top', bbox=props, family='monospace')
+    
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f"{model_name}_scatter_{timestamp}.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    print(f"\nSaved scatter plot to: {save_path}")
+    plt.close()
+
+    # Plot 2: Residual plot
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(target, residuals, alpha=0.6, s=20, edgecolors='k', linewidths=0.5)
+    ax.axhline(y=0, color="r", linestyle="--", lw=2)
+    ax.set_xlabel("True Magnitude", fontsize=12, fontweight='bold')
+    ax.set_ylabel("Residual (Predicted - True)", fontsize=12, fontweight='bold')
+    # ax.set_title(f"Residual Plot", fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    
+    # # Add statistics box
+    # textstr = '\n'.join([
+    #     f'RMSE = {rmse:.4f}',
+    #     f'MAE = {mae:.4f}',
+    #     f'Std Dev = {std_dev:.4f}',
+    #     f'Mean = {np.mean(residuals):.4f}'
+    # ])
+    # props = dict(boxstyle='round', facecolor='lightblue', alpha=0.8)
+    # ax.text(0.95, 0.95, textstr, transform=ax.transAxes, fontsize=11,
+    #         verticalalignment='top', horizontalalignment='right', bbox=props, family='monospace')
+    
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f"{model_name}_residuals_{timestamp}.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    print(f"Saved residual plot to: {save_path}")
+    plt.close()
+
+    # Plot 3: Histogram of residuals
+    fig, ax = plt.subplots(figsize=(10, 8))
+    n, bins, patches = ax.hist(residuals, bins=50, alpha=0.7, edgecolor='black', color='steelblue')
+    ax.axvline(x=0, color="r", linestyle="--", lw=2)
+    ax.set_xlabel("Residual (Predicted - True)", fontsize=12, fontweight='bold')
+    ax.set_ylabel("Count", fontsize=12, fontweight='bold')
+    # ax.set_title(f"Residual Distribution", fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    
+    # # Add statistics box
+    # textstr = '\n'.join([
+    #     f'MAE = {mae:.4f}',
+    #     f'RMSE = {rmse:.4f}',
+    #     f'Std Dev = {std_dev:.4f}',
+    #     f'Mean = {np.mean(residuals):.4f}',
+    #     f'Median = {np.median(residuals):.4f}'
+    # ])
+    # props = dict(boxstyle='round', facecolor='lightblue', alpha=0.8)
+    # ax.text(0.72, 0.95, textstr, transform=ax.transAxes, fontsize=11,
+    #         verticalalignment='top', bbox=props, family='monospace')
+    
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f"{model_name}_histogram_{timestamp}.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    print(f"Saved histogram plot to: {save_path}")
+    plt.close()
+
+    # Plot 4: Magnitude distribution comparison
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.hist(target, bins=30, alpha=0.7, label="True", edgecolor='black', color='blue')
+    ax.hist(pred, bins=30, alpha=0.7, label="Predicted", edgecolor='black', color='red')
+    ax.set_xlabel("Magnitude", fontsize=12, fontweight='bold')
+    ax.set_ylabel("Frequency", fontsize=12, fontweight='bold')
+    # ax.set_title("Magnitude Distribution Comparison", fontsize=14, fontweight='bold')
+    ax.legend(fontsize=11)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f"{model_name}_distribution_{timestamp}.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    print(f"Saved distribution plot to: {save_path}")
+    plt.close()
+
+    # Plot 5: Binned box-and-whisker plot
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Create bin centers at 0.5, 1.0, 1.5, 2.0, etc.
+    bin_width = 0.5
+    bin_centers = np.arange(0.5, np.ceil(target.max()) + bin_width, bin_width)
+    
+    # Create bin edges around centers (e.g., center 0.5 has edges 0.25-0.75)
+    bin_edges = np.concatenate([
+        [bin_centers[0] - bin_width/2],  # First edge
+        bin_centers + bin_width/2         # Upper edges for all bins
+    ])
+    
+    # Assign each sample to a bin
+    bin_indices = np.digitize(target, bin_edges)
+    
+    # Prepare data for box plot - group predictions by bin
+    boxplot_data = []
+    bin_labels = []
+    valid_bin_centers = []
+    
+    for i in range(len(bin_centers)):
+        # bin_indices == i+1 because digitize returns 1-indexed bins
+        mask = bin_indices == (i + 1)
+        if np.sum(mask) > 0:  # Only include bins with data
+            boxplot_data.append(pred[mask])
+            bin_labels.append(f"{bin_edges[i]:.2f}-{bin_edges[i+1]:.2f}")
+            valid_bin_centers.append(bin_centers[i])
+    
+    # Create box plot
+    bp = ax.boxplot(boxplot_data, positions=valid_bin_centers, widths=0.35,
+                    patch_artist=True, showfliers=True,
+                    boxprops=dict(facecolor='steelblue', alpha=0.7),
+                    medianprops=dict(color='red', linewidth=2),
+                    whiskerprops=dict(color='black', linewidth=1.5),
+                    capprops=dict(color='black', linewidth=1.5),
+                    flierprops=dict(marker='o', markerfacecolor='gray', markersize=4, alpha=0.5))
+    
+    # Add perfect prediction line
+    ax.plot([target.min(), target.max()], [target.min(), target.max()], 
+            "r--", lw=2, label="Perfect Prediction", zorder=1)
+    
+    ax.set_xlabel("True Magnitude (Binned)", fontsize=12, fontweight='bold')
+    ax.set_ylabel("Predicted Magnitude Distribution", fontsize=12, fontweight='bold')
+    ax.legend(fontsize=10, loc='upper left')
+    ax.grid(True, alpha=0.3)
+    
+    # # Add statistics box
+    # textstr = '\n'.join([
+    #     f'$R^2$ = {r2:.4f}',
+    #     f'MAE = {mae:.4f}',
+    #     f'RMSE = {rmse:.4f}',
+    #     f'Bin Width = 0.5',
+    #     f'N = {len(pred)}'
+    # ])
+    # props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+    # ax.text(0.95, 0.05, textstr, transform=ax.transAxes, fontsize=11,
+    #         verticalalignment='bottom', horizontalalignment='right', bbox=props, family='monospace')
+    
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, f"{model_name}_boxplot_{timestamp}.png")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    print(f"Saved box-and-whisker plot to: {save_path}")
+    plt.close()
+
+    # Plot 6: Error vs Depth
+    if "source_depth_km" in test_data.metadata.columns:
+        # Get depth values directly from test data
+        depths = test_data.metadata["source_depth_km"].values
+        
+        # Filter out NaN values
+        valid_mask = ~np.isnan(depths)
+        if valid_mask.sum() > 0:
+            depths_valid = depths[valid_mask]
+            errors_valid = residuals[valid_mask]
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            scatter = ax.scatter(depths_valid, errors_valid, alpha=0.5, s=20, 
+                               c='steelblue', edgecolors='k', linewidths=0.3)
+            
+            # Add horizontal line at zero error
+            ax.axhline(y=0, color='r', linestyle='--', lw=2, label='Zero Error')
+            
+            ax.set_xlabel("Source Depth (km)", fontsize=12, fontweight='bold')
+            ax.set_ylabel("Prediction Error", fontsize=12, fontweight='bold')
+            ax.legend(fontsize=10)
+            ax.grid(True, alpha=0.3)
+            
+            # # Add statistics box
+            # corr = np.corrcoef(depths_valid, errors_valid)[0, 1]
+            # textstr = '\n'.join([
+            #     f'Samples = {len(depths_valid)}',
+            #     f'Correlation = {corr:.3f}',
+            #     f'Mean Error = {errors_valid.mean():.4f}',
+            #     f'RMSE = {np.sqrt((errors_valid**2).mean()):.4f}'
+            # ])
+            # props = dict(boxstyle='round', facecolor='lightcoral', alpha=0.8)
+            # ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=11,
+            #        verticalalignment='top', bbox=props, family='monospace')
+            
+            plt.tight_layout()
+            save_path = os.path.join(output_dir, f"{model_name}_error_vs_depth_{timestamp}.png")
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+            print(f"Saved error vs depth plot to: {save_path}")
+            plt.close()
+        else:
+            print("Warning: No valid depth data available for error vs depth plot")
+    else:
+        print("Warning: 'source_depth_km' not found in metadata, skipping error vs depth plot")
+
+    # Plot 7: Error vs SNR
+    if "trace_snr_db" in test_data.metadata.columns:
+        # Get SNR values directly from test data
+        snr_series = get_mean_snr_series(test_data)
+        snr_values = snr_series.values
+        
+        # Filter out NaN values
+        valid_mask = ~np.isnan(snr_values)
+        if valid_mask.sum() > 0:
+            snr_valid = snr_values[valid_mask]
+            errors_valid = residuals[valid_mask]
+            
+            fig, ax = plt.subplots(figsize=(10, 8))
+            scatter = ax.scatter(snr_valid, errors_valid, alpha=0.5, s=20,
+                               c='steelblue', edgecolors='k', linewidths=0.3)
+            
+            # Add horizontal line at zero error
+            ax.axhline(y=0, color='r', linestyle='--', lw=2, label='Zero Error')
+            
+            ax.set_xlabel("Signal-to-Noise Ratio (dB)", fontsize=12, fontweight='bold')
+            ax.set_ylabel("Prediction Error", fontsize=12, fontweight='bold')
+            ax.legend(fontsize=10)
+            ax.grid(True, alpha=0.3)
+            
+            # # Add statistics box
+            # corr = np.corrcoef(snr_valid, errors_valid)[0, 1]
+            # textstr = '\n'.join([
+            #     f'Samples = {len(snr_valid)}',
+            #     f'Correlation = {corr:.3f}',
+            #     f'Mean Error = {errors_valid.mean():.4f}',
+            #     f'RMSE = {np.sqrt((errors_valid**2).mean()):.4f}'
+            # ])
+            # props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.8)
+            # ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=11,
+            #        verticalalignment='top', bbox=props, family='monospace')
+            
+            plt.tight_layout()
+            save_path = os.path.join(output_dir, f"{model_name}_error_vs_snr_{timestamp}.png")
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+            print(f"Saved error vs SNR plot to: {save_path}")
+            plt.close()
+        else:
+            print("Warning: No valid SNR data available for error vs SNR plot")
+    else:
+        print("Warning: 'trace_snr_db' not found in metadata, skipping error vs SNR plot")

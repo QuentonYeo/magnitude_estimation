@@ -18,6 +18,7 @@ from datetime import datetime
 
 from my_project.models.UMamba_mag_v3.model import UMambaMag
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 
 
 def evaluate_umamba_mag_v3(
@@ -109,6 +110,10 @@ def evaluate_umamba_mag_v3(
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
+    
+    # Get test split dataset with metadata
+    _, _, test_data = data.train_dev_test()
+    
     print(f"Test samples: {len(test_generator)}")
     print(f"Test batches: {len(test_loader)}")
 
@@ -310,8 +315,10 @@ def evaluate_umamba_mag_v3(
             rmse, 
             mae, 
             r2, 
+            test_data,
             output_dir, 
-            timestamp
+            timestamp,
+            model_name="umamba_v3"
         )
         
         # Plot 2: Triple-head examples (waveform + temporal + uncertainty)
@@ -341,53 +348,62 @@ def evaluate_umamba_mag_v3(
                     output_dir,
                     timestamp
                 )
+        
+        # Plot 3: Outlier analysis - samples with large underprediction (error < -3.0)
+        if save_temporal or save_uncertainty:
+            errors = pred_final - target_final
+            outlier_mask = errors < -3.0  # Underprediction by more than 3 magnitude units
+            outlier_count = np.sum(outlier_mask)
+            
+            if outlier_count > 0:
+                print(f"\nFound {outlier_count} outliers with underprediction > 3.0 magnitude units")
+                
+                # Create outliers subdirectory
+                outliers_dir = os.path.join(output_dir, "outliers")
+                os.makedirs(outliers_dir, exist_ok=True)
+                
+                # Get outlier samples
+                outlier_waveforms = waveforms_all[outlier_mask]
+                outlier_temporal_pred = temporal_pred_all[outlier_mask]
+                outlier_temporal_targ = temporal_targ_all[outlier_mask]
+                outlier_scalar_pred = pred_final[outlier_mask]
+                outlier_scalar_targ = target_final[outlier_mask]
+                outlier_errors = errors[outlier_mask]
+                
+                # Sort by error magnitude (most severe first)
+                sorted_indices = np.argsort(outlier_errors)
+                
+                # Plot all outliers
+                if save_uncertainty and use_uncertainty:
+                    outlier_uncertainty = uncertainty_all[outlier_mask]
+                    plot_triple_head_examples(
+                        outlier_waveforms[sorted_indices],
+                        outlier_temporal_pred[sorted_indices],
+                        outlier_temporal_targ[sorted_indices],
+                        outlier_uncertainty[sorted_indices],
+                        outlier_scalar_pred[sorted_indices],
+                        outlier_scalar_targ[sorted_indices],
+                        outlier_count,  # Plot all outliers
+                        outliers_dir,
+                        timestamp
+                    )
+                else:
+                    plot_temporal_examples(
+                        outlier_waveforms[sorted_indices],
+                        outlier_temporal_pred[sorted_indices],
+                        outlier_temporal_targ[sorted_indices],
+                        outlier_scalar_pred[sorted_indices],
+                        outlier_scalar_targ[sorted_indices],
+                        outlier_count,  # Plot all outliers
+                        outliers_dir,
+                        timestamp
+                    )
+                
+                print(f"Saved {outlier_count} outlier plots to: {outliers_dir}")
+            else:
+                print("\nNo outliers found with underprediction > 3.0 magnitude units")
 
     return results
-
-
-def plot_scalar_summary(pred, target, mse, rmse, mae, r2, output_dir, timestamp):
-    """Plot summary of scalar predictions (4 subplots)."""
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-
-    # Scatter: predicted vs true
-    axes[0, 0].scatter(target, pred, alpha=0.6, s=10)
-    axes[0, 0].plot([target.min(), target.max()], [target.min(), target.max()], "r--", lw=2)
-    axes[0, 0].set_xlabel("True Magnitude")
-    axes[0, 0].set_ylabel("Predicted Magnitude")
-    axes[0, 0].set_title(f"UMamba V3: Predicted vs True (R² = {r2:.3f})")
-    axes[0, 0].grid(True, alpha=0.3)
-
-    # Residual plot
-    residuals = pred - target
-    axes[0, 1].scatter(target, residuals, alpha=0.6, s=10)
-    axes[0, 1].axhline(y=0, color="r", linestyle="--", lw=2)
-    axes[0, 1].set_xlabel("True Magnitude")
-    axes[0, 1].set_ylabel("Residual (Predicted - True)")
-    axes[0, 1].set_title(f"Residual Plot (RMSE = {rmse:.3f})")
-    axes[0, 1].grid(True, alpha=0.3)
-
-    # Histogram of residuals
-    axes[1, 0].hist(residuals, bins=50, alpha=0.7, density=True, edgecolor='black')
-    axes[1, 0].axvline(x=0, color="r", linestyle="--", lw=2)
-    axes[1, 0].set_xlabel("Residual (Predicted - True)")
-    axes[1, 0].set_ylabel("Density")
-    axes[1, 0].set_title(f"Residual Distribution (MAE = {mae:.3f})")
-    axes[1, 0].grid(True, alpha=0.3)
-
-    # Magnitude distribution comparison
-    axes[1, 1].hist(target, bins=30, alpha=0.7, label="True", density=True, edgecolor='black')
-    axes[1, 1].hist(pred, bins=30, alpha=0.7, label="Predicted", density=True, edgecolor='black')
-    axes[1, 1].set_xlabel("Magnitude")
-    axes[1, 1].set_ylabel("Density")
-    axes[1, 1].set_title("Magnitude Distribution Comparison")
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    save_path = os.path.join(output_dir, f"umamba_v3_evaluation_{timestamp}.png")
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    print(f"\nSaved scalar evaluation plots to: {save_path}")
-    plt.close()
 
 
 def plot_temporal_examples(waveforms, temporal_pred, temporal_targ, 
@@ -397,7 +413,7 @@ def plot_temporal_examples(waveforms, temporal_pred, temporal_targ,
     num_examples = min(num_examples, len(waveforms))
     
     for idx in range(num_examples):
-        fig, axes = plt.subplots(4, 1, figsize=(15, 10))
+        fig, axes = plt.subplots(3, 1, figsize=(15, 9))
         
         waveform = waveforms[idx]
         temp_pred = temporal_pred[idx]
@@ -411,20 +427,18 @@ def plot_temporal_examples(waveforms, temporal_pred, temporal_targ,
         for i, component in enumerate(['E', 'N', 'Z']):
             axes[0].plot(time, waveform[i], label=component, alpha=0.7)
         axes[0].set_ylabel('Amplitude')
-        axes[0].set_title(f'Seismic Waveform (Sample {idx+1})')
+        axes[0].set_title(f'Seismic Waveform')
         axes[0].legend(loc='upper right')
         axes[0].grid(True, alpha=0.3)
         
         # Plot temporal predictions vs targets
         axes[1].plot(time, temp_targ, 'b-', label='Target', linewidth=2)
         axes[1].plot(time, temp_pred, 'r--', label='Temporal Prediction', linewidth=2)
-        axes[1].axhline(y=scal_targ, color='b', linestyle=':', 
-                        linewidth=2, label=f'True Magnitude: {scal_targ:.2f}')
         axes[1].axhline(y=scal_pred, color='r', linestyle=':', 
-                        linewidth=2, label=f'Predicted Magnitude: {scal_pred:.2f}')
+                        linewidth=2, label=f'Scalar Prediction: {scal_pred:.2f}')
         axes[1].set_ylabel('Magnitude')
         axes[1].set_title('Temporal Predictions vs Target (Auxiliary Head)')
-        axes[1].legend(loc='upper right')
+        axes[1].legend(loc='lower right')
         axes[1].grid(True, alpha=0.3)
         
         # Plot temporal prediction error
@@ -432,23 +446,10 @@ def plot_temporal_examples(waveforms, temporal_pred, temporal_targ,
         axes[2].plot(time, error, 'purple', linewidth=1)
         axes[2].axhline(y=0, color='k', linestyle='--', linewidth=1)
         axes[2].fill_between(time, 0, error, alpha=0.3, color='purple')
+        axes[2].set_xlabel('Time (s)')
         axes[2].set_ylabel('Error')
         axes[2].set_title(f'Temporal Prediction Error (MAE: {np.abs(error).mean():.3f})')
         axes[2].grid(True, alpha=0.3)
-        
-        # Plot prediction consistency
-        axes[3].plot(time, temp_pred, 'r-', label='Temporal Prediction')
-        axes[3].fill_between(time, 
-                             temp_pred - np.std(temp_pred), 
-                             temp_pred + np.std(temp_pred),
-                             alpha=0.3, color='red', label=f'Std Dev: {np.std(temp_pred):.3f}')
-        axes[3].axhline(y=scal_pred, color='darkred', linestyle='--', 
-                        linewidth=2, label='Scalar Prediction (Primary Head)')
-        axes[3].set_xlabel('Time (s)')
-        axes[3].set_ylabel('Magnitude')
-        axes[3].set_title('Temporal Prediction with Uncertainty')
-        axes[3].legend(loc='upper right')
-        axes[3].grid(True, alpha=0.3)
         
         plt.tight_layout()
         save_path = os.path.join(output_dir, f"temporal_example_{idx+1}_{timestamp}.png")
@@ -462,23 +463,18 @@ def plot_triple_head_examples(waveforms, temporal_pred, temporal_targ,
                               uncertainty, scalar_pred, scalar_targ, 
                               num_examples, output_dir, timestamp):
     """
-    Plot triple-head prediction examples with 3 subplots:
+    Plot triple-head prediction examples with 2 subplots:
     1. Original 3-phase waveform (all 3 channels on one plot)
     2. Predicted temporal magnitude (per-timestep)
-    3. Uncertainty (per-timestep, converted to std dev)
     """
     num_examples = min(num_examples, len(waveforms))
     
-    # Convert log variance to std dev for better interpretability
-    std_dev = np.exp(uncertainty / 2)
-    
     for idx in range(num_examples):
-        fig, axes = plt.subplots(3, 1, figsize=(15, 10))
+        fig, axes = plt.subplots(2, 1, figsize=(15, 8))
         
         waveform = waveforms[idx]
         temp_pred = temporal_pred[idx]
         temp_targ = temporal_targ[idx]
-        std = std_dev[idx]
         scal_pred = scalar_pred[idx]
         scal_targ = scalar_targ[idx]
         
@@ -491,7 +487,7 @@ def plot_triple_head_examples(waveforms, temporal_pred, temporal_targ,
             axes[0].plot(time, waveform[i], label=labels[i], alpha=0.8, 
                         linewidth=1.5, color=colors[i])
         axes[0].set_ylabel('Amplitude', fontsize=12, fontweight='bold')
-        axes[0].set_title(f'Seismic Waveform - Sample {idx+1}\n'
+        axes[0].set_title(f'Seismic Waveform\n'
                          f'True Magnitude: {scal_targ:.2f} | '
                          f'Predicted: {scal_pred:.2f} | '
                          f'Error: {abs(scal_pred - scal_targ):.3f}',
@@ -506,9 +502,7 @@ def plot_triple_head_examples(waveforms, temporal_pred, temporal_targ,
         axes[1].plot(time, temp_pred, 'r-', label='Temporal Prediction', 
                     linewidth=2, alpha=0.9)
         
-        # Add horizontal lines for scalar predictions
-        axes[1].axhline(y=scal_targ, color='blue', linestyle=':', 
-                       linewidth=2, alpha=0.6, label=f'Scalar Target: {scal_targ:.2f}')
+        # Add horizontal line for scalar prediction only
         axes[1].axhline(y=scal_pred, color='red', linestyle=':', 
                        linewidth=2, alpha=0.6, label=f'Scalar Prediction: {scal_pred:.2f}')
         
@@ -516,37 +510,13 @@ def plot_triple_head_examples(waveforms, temporal_pred, temporal_targ,
         axes[1].fill_between(time, temp_pred, temp_targ, alpha=0.2, color='purple',
                             label=f'Error (MAE: {np.abs(temp_pred - temp_targ).mean():.3f})')
         
+        axes[1].set_xlabel('Time (s)', fontsize=12, fontweight='bold')
         axes[1].set_ylabel('Magnitude', fontsize=12, fontweight='bold')
         axes[1].set_title('Temporal Magnitude Predictions (Per-Timestep)', 
                          fontsize=13, fontweight='bold')
-        axes[1].legend(loc='upper right', fontsize=9, ncol=2)
+        axes[1].legend(loc='lower left', fontsize=9, ncol=2)
         axes[1].grid(True, alpha=0.3)
         axes[1].set_xlim(time[0], time[-1])
-        
-        # Subplot 3: Uncertainty (per-timestep)
-        # Plot std dev as primary metric
-        axes[2].plot(time, std, 'purple', linewidth=2, label='Uncertainty (Std Dev)')
-        axes[2].fill_between(time, 0, std, alpha=0.4, color='purple')
-        
-        # Add horizontal line for mean uncertainty
-        mean_std = std.mean()
-        axes[2].axhline(y=mean_std, color='darkviolet', linestyle='--', 
-                       linewidth=2, label=f'Mean Std Dev: {mean_std:.3f}')
-        
-        # Add reference bands
-        axes[2].axhspan(0, 0.1, alpha=0.1, color='green', label='Low Uncertainty')
-        axes[2].axhspan(0.1, 0.3, alpha=0.1, color='yellow', label='Medium Uncertainty')
-        axes[2].axhspan(0.3, std.max() * 1.1, alpha=0.1, color='red', label='High Uncertainty')
-        
-        axes[2].set_xlabel('Time (s)', fontsize=12, fontweight='bold')
-        axes[2].set_ylabel('Std Dev (Magnitude Units)', fontsize=12, fontweight='bold')
-        axes[2].set_title(f'Model Uncertainty (Per-Timestep)\n'
-                         f'Min: {std.min():.3f} | Mean: {mean_std:.3f} | Max: {std.max():.3f}',
-                         fontsize=13, fontweight='bold')
-        axes[2].legend(loc='upper right', fontsize=9, ncol=2)
-        axes[2].grid(True, alpha=0.3)
-        axes[2].set_xlim(time[0], time[-1])
-        axes[2].set_ylim(0, std.max() * 1.1)
         
         plt.tight_layout()
         save_path = os.path.join(output_dir, f"triple_head_sample_{idx+1}_{timestamp}.png")

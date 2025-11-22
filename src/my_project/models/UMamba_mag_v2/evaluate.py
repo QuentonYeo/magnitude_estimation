@@ -11,6 +11,7 @@ from datetime import datetime
 
 from my_project.models.UMamba_mag_v2.model import UMambaMag
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 
 
 def evaluate_umamba_mag_v2(
@@ -98,6 +99,10 @@ def evaluate_umamba_mag_v2(
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
+    
+    # Get test split dataset with metadata
+    _, _, test_data = data.train_dev_test()
+    
     print(f"Test samples: {len(test_generator)}")
     print(f"Test batches: {len(test_loader)}")
 
@@ -183,9 +188,24 @@ def evaluate_umamba_mag_v2(
     if output_dir is None:
         output_dir = os.path.dirname(model_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Generate individual scalar summary plots using utility function
+    plot_scalar_summary(
+        pred_final, 
+        target_final, 
+        mse, 
+        rmse, 
+        mae, 
+        r2, 
+        test_data,
+        output_dir, 
+        timestamp,
+        model_name="umamba_v2"
+    )
+    
     plot_path = os.path.join(output_dir, f"umamba_v2_evaluation_{timestamp}.png")
 
-    # Create summary figure
+    # Create summary figure (legacy composite plot)
     fig, axes = plt.subplots(3, 2, figsize=(15, 12))
 
     # Scatter: predicted vs true

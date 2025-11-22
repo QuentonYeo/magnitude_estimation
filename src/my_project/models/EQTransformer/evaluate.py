@@ -10,6 +10,7 @@ from tqdm import tqdm
 import seisbench.data as sbd
 from my_project.models.EQTransformer.model import EQTransformerMag
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 import os
 from datetime import datetime
 
@@ -69,6 +70,10 @@ def evaluate_eqtransformer_mag(
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
+    
+    # Get test split dataset with metadata
+    _, _, test_data = data.train_dev_test()
+    
     print(f"Test samples: {len(test_generator)}")
     print(f"Test batches: {len(test_loader)}")
 
@@ -176,6 +181,21 @@ def evaluate_eqtransformer_mag(
             output_dir = os.path.dirname(model_path)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Generate standardized scalar summary plots
+        plot_scalar_summary(
+            pred_final,
+            target_final,
+            mse,
+            rmse,
+            mae,
+            r2,
+            test_data,
+            output_dir,
+            timestamp,
+            model_name="eqtransformermag"
+        )
+        
         plot_path = os.path.join(
             output_dir, f"eqtransformermag_evaluation_{timestamp}.png"
         )

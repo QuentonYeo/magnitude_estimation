@@ -249,7 +249,9 @@ def extract_model_params(args, model_type):
 
     # MagNet specific parameters
     elif model_type == "magnet":
-        if hasattr(args, "lstm_hidden") and args.lstm_hidden != 100:
+        # MagNet defaults: lstm_hidden=100, dropout=0.2, norm="std"
+        # Only override if explicitly set (different from global --lstm_hidden default of 128)
+        if hasattr(args, "lstm_hidden") and args.lstm_hidden != 128:  # 128 is argparse default for AMAG
             params["lstm_hidden"] = args.lstm_hidden
         if hasattr(args, "dropout") and args.dropout != 0.2:
             params["dropout"] = args.dropout
@@ -489,6 +491,9 @@ def create_magnitude_model(model_type: str, **kwargs):
         scalar_weight = kwargs.get("scalar_weight", 0.7)
         temporal_weight = kwargs.get("temporal_weight", 0.25)
         use_uncertainty = kwargs.get("use_uncertainty", False)
+        # V3-specific: ablation parameters
+        mamba_at_all_stages = kwargs.get("mamba_at_all_stages", False)
+        use_multiscale_fusion = kwargs.get("use_multiscale_fusion", True)
 
         return UMambaMagV3(
             in_channels=in_channels,
@@ -505,6 +510,8 @@ def create_magnitude_model(model_type: str, **kwargs):
             scalar_weight=scalar_weight,
             temporal_weight=temporal_weight,
             use_uncertainty=use_uncertainty,
+            mamba_at_all_stages=mamba_at_all_stages,
+            use_multiscale_fusion=use_multiscale_fusion,
         )
     elif model_type == "magnet":
         # Extract MagNet-specific parameters with defaults

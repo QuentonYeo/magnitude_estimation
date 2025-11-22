@@ -24,6 +24,7 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import seisbench.data as sbd
 from my_project.models.ViT.model import ViTMagnitudeEstimator
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 
 
 def evaluate_vit_magnitude(
@@ -87,6 +88,10 @@ def evaluate_vit_magnitude(
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
+    
+    # Get test split dataset with metadata
+    _, _, test_data = data.train_dev_test()
+    
     print(f"Test samples: {len(test_generator)}")
     print(f"Test batches: {len(test_loader)}")
 
@@ -207,6 +212,23 @@ def evaluate_vit_magnitude(
     # Create plots
     if plot_examples:
         print(f"\nCreating evaluation plots...")
+        
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Generate standardized scalar summary plots
+        plot_scalar_summary(
+            all_predictions,
+            all_targets,
+            mse,
+            rmse,
+            mae,
+            r2,
+            test_data,
+            output_dir,
+            timestamp,
+            model_name="vit"
+        )
 
         # 1. Scatter plot: Predicted vs True magnitudes
         plt.figure(figsize=(15, 12))

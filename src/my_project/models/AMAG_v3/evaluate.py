@@ -10,6 +10,7 @@ from tqdm import tqdm
 import seisbench.data as sbd
 from my_project.models.AMAG_v3.model import MagnitudeNet
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 import os
 from datetime import datetime
 
@@ -66,6 +67,10 @@ def evaluate_magnitude_net(
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
+    
+    # Get test split dataset with metadata
+    _, _, test_data = data.train_dev_test()
+    
     print(f"Test samples: {len(test_generator)}")
     print(f"Test batches: {len(test_loader)}")
 
@@ -150,16 +155,31 @@ def evaluate_magnitude_net(
         print(f"Total inference time: {total_inference_time:.2f}s")
     print("=" * 60)
 
-    # Plot examples if requested
-    if plot_examples and num_examples > 0:
+    # Generate standardized scalar summary plots
+    if plot_examples:
         # Set up output directory
         if output_dir is None:
             output_dir = os.path.dirname(model_path)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Generate individual scalar summary plots using utility function
+        plot_scalar_summary(
+            all_predictions, 
+            all_targets, 
+            mse, 
+            rmse, 
+            mae, 
+            r2, 
+            test_data,
+            output_dir, 
+            timestamp,
+            model_name="amag_v3"
+        )
+        
         plot_path = os.path.join(output_dir, f"magnitude_evaluation_{timestamp}.png")
 
-        # Create comparison plots
+        # Create comparison plots (legacy composite plot)
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
         # Scatter plot: Predicted vs True

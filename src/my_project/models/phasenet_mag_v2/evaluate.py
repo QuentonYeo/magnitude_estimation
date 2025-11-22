@@ -10,6 +10,7 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import seisbench.data as sbd
 from my_project.models.phasenet_mag_v2.model import PhaseNetMagv2
 from my_project.loaders import data_loader as dl
+from my_project.utils.utils import plot_scalar_summary
 
 
 def evaluate_phasenet_mag_v2(
@@ -73,6 +74,10 @@ def evaluate_phasenet_mag_v2(
     test_generator, test_loader, _ = dl.load_dataset(
         data, model, "test", batch_size=batch_size
     )
+    
+    # Get test split dataset with metadata
+    _, _, test_data = data.train_dev_test()
+    
     print(f"Test samples: {len(test_generator)}")
     print(f"Test batches: {len(test_loader)}")
 
@@ -198,9 +203,11 @@ def evaluate_phasenet_mag_v2(
             mse, 
             rmse, 
             mae, 
-            r2, 
+            r2,
+            test_data,
             output_dir, 
-            timestamp
+            timestamp,
+            model_name="phasenet_mag_v2"
         )
         
         # Plot example waveforms with scalar predictions
@@ -233,54 +240,6 @@ def evaluate_phasenet_mag_v2(
         "avg_inference_time": avg_inference_time,
         "total_inference_time": total_inference_time,
     }
-
-
-def plot_scalar_summary(pred, target, mse, rmse, mae, r2, output_dir, timestamp):
-    """
-    Plot summary of scalar predictions (4 subplots).
-    Standard evaluation plots matching UMamba V3 and other scalar models.
-    """
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-
-    # Scatter: predicted vs true
-    axes[0, 0].scatter(target, pred, alpha=0.6, s=10)
-    axes[0, 0].plot([target.min(), target.max()], [target.min(), target.max()], "r--", lw=2)
-    axes[0, 0].set_xlabel("True Magnitude")
-    axes[0, 0].set_ylabel("Predicted Magnitude")
-    axes[0, 0].set_title(f"PhaseNetMag V2: Predicted vs True (R² = {r2:.3f})")
-    axes[0, 0].grid(True, alpha=0.3)
-
-    # Residual plot
-    residuals = pred - target
-    axes[0, 1].scatter(target, residuals, alpha=0.6, s=10)
-    axes[0, 1].axhline(y=0, color="r", linestyle="--", lw=2)
-    axes[0, 1].set_xlabel("True Magnitude")
-    axes[0, 1].set_ylabel("Residual (Predicted - True)")
-    axes[0, 1].set_title(f"Residual Plot (RMSE = {rmse:.3f})")
-    axes[0, 1].grid(True, alpha=0.3)
-
-    # Histogram of residuals
-    axes[1, 0].hist(residuals, bins=50, alpha=0.7, density=True, edgecolor='black')
-    axes[1, 0].axvline(x=0, color="r", linestyle="--", lw=2)
-    axes[1, 0].set_xlabel("Residual (Predicted - True)")
-    axes[1, 0].set_ylabel("Density")
-    axes[1, 0].set_title(f"Residual Distribution (MAE = {mae:.3f})")
-    axes[1, 0].grid(True, alpha=0.3)
-
-    # Magnitude distribution comparison
-    axes[1, 1].hist(target, bins=30, alpha=0.7, label="True", density=True, edgecolor='black')
-    axes[1, 1].hist(pred, bins=30, alpha=0.7, label="Predicted", density=True, edgecolor='black')
-    axes[1, 1].set_xlabel("Magnitude")
-    axes[1, 1].set_ylabel("Density")
-    axes[1, 1].set_title("Magnitude Distribution Comparison")
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    save_path = os.path.join(output_dir, f"phasenet_mag_v2_evaluation_{timestamp}.png")
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    print(f"\nSaved scalar evaluation plots to: {save_path}")
-    plt.close()
 
 
 def plot_waveform_examples(waveforms, temporal_labels, scalar_pred, scalar_targ, 
